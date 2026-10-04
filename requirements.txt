@@ -1,0 +1,5 @@
+aiohttp
+asyncpg
+Flask
+psycopg2-binary
+python-dotenv

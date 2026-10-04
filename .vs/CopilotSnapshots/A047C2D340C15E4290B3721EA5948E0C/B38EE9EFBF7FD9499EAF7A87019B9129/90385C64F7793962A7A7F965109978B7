@@ -1,0 +1,53 @@
+﻿import asyncio
+import psycopg2
+import asyncpg
+
+# Central connection string for the tiger DB. Keep in tigerDataConnection and
+# import elsewhere. NOTE: do not execute network operations at import time.
+CONNECTION = "postgres://tsdbadmin:nddk8ftawo1cqq2f@mmsuny0be8.rlx5eobeob.tsdb.cloud.timescale.com:37279/tsdb?sslmode=require"
+
+
+def get_psycopg_connection():
+    """Return a new blocking psycopg2 connection using CONNECTION."""
+    return psycopg2.connect(CONNECTION)
+
+
+async def get_asyncpg_connection():
+    """Return a new asyncpg connection. Caller should await and close it."""
+    return await asyncpg.connect(CONNECTION)
+
+
+def create_basic_test_table():
+    """Creates a small testing table (idempotent)."""
+    sql = """
+    CREATE TABLE IF NOT EXISTS testing (
+      names VARCHAR(100) PRIMARY KEY,
+      seasons int NOT NULL,
+      days int NOT NULL
+    );
+    """
+    conn = get_psycopg_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Keep any heavy or network code under __main__ so importing this module is safe.
+if __name__ == '__main__':
+    async def main():
+        conn = await get_asyncpg_connection()
+        try:
+            extensions = await conn.fetch("select extname, extversion from pg_extension")
+            print("Extensions:")
+            for extension in extensions:
+                print(extension)
+        finally:
+            await conn.close()
+
+    asyncio.run(main())
+    print("Connection successful!")
+    # create_basic_test_table()

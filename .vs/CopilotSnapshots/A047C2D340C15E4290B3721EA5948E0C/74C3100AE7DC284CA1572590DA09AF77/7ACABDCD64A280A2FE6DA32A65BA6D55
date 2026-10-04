@@ -1,0 +1,13 @@
+﻿from geopy.geocoders import Nominatim
+
+# Initialize geocoder with custom User-Agent
+geolocator = Nominatim(user_agent="MyOSMTestApp/1.0")
+
+location = geolocator.geocode("Eiffel Tower, Paris")
+
+if location:
+    print("✅ Connection Successful!")
+    print(f"Address: {location.address}")
+    print(f"Coordinates: ({location.latitude}, {location.longitude})")
+else:
+    print("❌ Location not found.")

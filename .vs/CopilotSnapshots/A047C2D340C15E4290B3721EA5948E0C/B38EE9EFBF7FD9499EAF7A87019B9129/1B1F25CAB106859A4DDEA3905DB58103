@@ -1,0 +1,6 @@
+﻿from geopy.geocoders import Nominatim
+
+# Initialize geocoder with custom User-Agent. Avoid making network calls at import time.
+geolocator = Nominatim(user_agent="MyOSMTestApp/1.0")
+
+# Use geolocator.geocode(...) from your application or tests to perform lookups.

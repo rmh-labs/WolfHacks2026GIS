@@ -1,0 +1,204 @@
+﻿"""
+Ingest script to pull data from scrappers, clean, and insert into tiger DB using
+functions in tigerDataConnection.py. Provides simple upsert logic for NOAA events
+and optional OSM geocodes.
+
+Usage:
+  python EvacAssist/ingest.py [noaa|osm|all]
+
+This is intentionally simple and synchronous (psycopg2) for hackathon speed.
+"""
+import os
+import json
+import uuid
+from datetime import datetime
+from typing import Optional
+
+from scrapper import NOAA as noaa
+from scrapper import OpenStreetMapAPI as osm
+import tigerDataConnection as tdc
+
+
+def ensure_tables():
+    """Create required tables if they do not exist."""
+    create_noaa = """
+    CREATE TABLE IF NOT EXISTS noaa_events (
+      id TEXT PRIMARY KEY,
+      event_type TEXT,
+      severity TEXT,
+      audio_trigger TEXT,
+      status TEXT,
+      start_time TIMESTAMPTZ,
+      source_api TEXT,
+      metadata JSONB,
+      properties JSONB,
+      geom GEOMETRY(Geometry,4326)
+    );
+    CREATE INDEX IF NOT EXISTS noaa_events_geom_gist ON noaa_events USING GIST (geom);
+    """
+
+    create_osm = """
+    CREATE TABLE IF NOT EXISTS osm_geocodes (
+      id TEXT PRIMARY KEY,
+      query_text TEXT,
+      address TEXT,
+      lat DOUBLE PRECISION,
+      lon DOUBLE PRECISION,
+      properties JSONB,
+      geom GEOMETRY(Point,4326)
+    );
+    CREATE INDEX IF NOT EXISTS osm_geocodes_geom_gist ON osm_geocodes USING GIST (geom);
+    """
+
+    conn = tdc.get_psycopg_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(create_noaa)
+        cur.execute(create_osm)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def upsert_noaa_from_gdf(gdf):
+    """Upsert rows from a GeoDataFrame returned by NOA A fetch function."""
+    if gdf is None:
+        print("No NOAA data to ingest")
+        return
+    try:
+        n = len(gdf)
+    except Exception:
+        print("NOAA returned unexpected object type:", type(gdf))
+        return
+    if n == 0:
+        print("NOAA returned empty GeoDataFrame")
+        return
+
+    sql = """
+    INSERT INTO noaa_events (id, event_type, severity, audio_trigger, status, start_time, source_api, metadata, properties, geom)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, ST_SetSRID(ST_GeomFromText(%s),4326))
+    ON CONFLICT (id) DO UPDATE
+      SET event_type = EXCLUDED.event_type,
+          severity = EXCLUDED.severity,
+          audio_trigger = EXCLUDED.audio_trigger,
+          status = EXCLUDED.status,
+          start_time = EXCLUDED.start_time,
+          source_api = EXCLUDED.source_api,
+          metadata = COALESCE(noaa_events.metadata, EXCLUDED.metadata),
+          properties = noaa_events.properties || EXCLUDED.properties,
+          geom = EXCLUDED.geom;
+    """
+
+    conn = tdc.get_psycopg_connection()
+    inserted = 0
+    try:
+        cur = conn.cursor()
+        for _, row in gdf.iterrows():
+            try:
+                uid = row.get('event_id') or str(uuid.uuid4())
+                event_type = row.get('event_type')
+                severity = row.get('severity')
+                audio_trigger = row.get('audio_trigger')
+                status = row.get('status')
+                start_time = row.get('start_time')
+                # If start_time is string, try to parse ISO
+                if start_time and isinstance(start_time, str):
+                    try:
+                        start_time = datetime.fromisoformat(start_time)
+                    except Exception:
+                        start_time = None
+                source_api = row.get('source_api') or 'NOAA'
+                metadata = row.get('metadata')
+                # metadata may be a string representing a dict --- try to parse
+                if isinstance(metadata, str):
+                    try:
+                        metadata_json = json.loads(metadata.replace("'", '"'))
+                    except Exception:
+                        metadata_json = {"raw": metadata}
+                else:
+                    metadata_json = metadata
+                # Build properties as JSON of all row fields except geometry
+                props = {}
+                for k in gdf.columns:
+                    if k == 'geometry':
+                        continue
+                    props[k] = row.get(k)
+                props_json = json.dumps(props, default=str)
+                geom = row.geometry
+                if geom is None:
+                    print(f"Skipping row {uid} with no geometry")
+                    continue
+                geom_wkt = geom.wkt
+                cur.execute(sql, (uid, event_type, severity, audio_trigger, status, start_time, source_api, json.dumps(metadata_json), props_json, geom_wkt))
+                inserted += 1
+            except Exception as e:
+                print("Failed to upsert row:", e)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    print(f"Upserted {inserted} NOAA records")
+
+
+def geocode_and_store(query_text: str) -> Optional[str]:
+    """Use OSM geocoder to resolve a query and store into osm_geocodes. Returns id."""
+    try:
+        loc = osm.geolocator.geocode(query_text)
+    except Exception as e:
+        print("Geocode error:", e)
+        return None
+    if not loc:
+        print("No geocode result for", query_text)
+        return None
+    uid = str(uuid.uuid4())
+    address = loc.address
+    lat = loc.latitude
+    lon = loc.longitude
+    props = { 'raw': loc.raw } if hasattr(loc, 'raw') else {}
+
+    sql = """
+    INSERT INTO osm_geocodes (id, query_text, address, lat, lon, properties, geom)
+    VALUES (%s, %s, %s, %s, %s, %s::jsonb, ST_SetSRID(ST_MakePoint(%s, %s),4326))
+    ON CONFLICT (id) DO UPDATE
+      SET query_text = EXCLUDED.query_text,
+          address = EXCLUDED.address,
+          lat = EXCLUDED.lat,
+          lon = EXCLUDED.lon,
+          properties = osm_geocodes.properties || EXCLUDED.properties,
+          geom = EXCLUDED.geom;
+    """
+    conn = tdc.get_psycopg_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, (uid, query_text, address, lat, lon, json.dumps(props), lon, lat))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    print(f"Stored geocode {uid} for query '{query_text}'")
+    return uid
+
+
+def main(action='all'):
+    ensure_tables()
+    if action in ('all', 'noaa'):
+        print("Fetching NOAA data...")
+        gdf = noaa.fetch_noaa_disasters()
+        upsert_noaa_from_gdf(gdf)
+    if action in ('all', 'osm'):
+        # For hackathon simplicity, geocode a small list of sample queries or
+        # allow env var OSM_QUERIES comma-separated
+        queries = os.getenv('OSM_QUERIES')
+        if queries:
+            qlist = [q.strip() for q in queries.split(',') if q.strip()]
+        else:
+            qlist = ["Eiffel Tower, Paris", "New York, NY", "1600 Pennsylvania Ave NW, Washington, DC"]
+        for q in qlist:
+            geocode_and_store(q)
+
+
+if __name__ == '__main__':
+    import sys
+    action = sys.argv[1] if len(sys.argv) > 1 else 'all'
+    main(action)

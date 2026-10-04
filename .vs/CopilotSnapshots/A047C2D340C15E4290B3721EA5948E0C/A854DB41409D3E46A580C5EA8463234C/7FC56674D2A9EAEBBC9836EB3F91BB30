@@ -1,0 +1,10 @@
+﻿import geopandas as gpd
+import tigerDataConnection as tdc
+from scrapper import OpenStreetMapAPI as osm
+from scrapper import NOAA as noaa
+
+
+
+print("Geopandas version:", gpd.__version__)
+osm.geolocator  # Access the geolocator to ensure it's initialized
+print(noaa.fetch_noaa_disasters())  # Fetch and process NOAA disaster data

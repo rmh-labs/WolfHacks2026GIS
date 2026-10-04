@@ -1,0 +1,103 @@
+﻿"""EvacAssist main test harness
+Run simple checks for components in this workspace (OSM geocoder, NOAA scraper,
+and the tiger DB connection script). Designed for quick hackathon testing, not
+production.
+"""
+import argparse
+import subprocess
+import sys
+import os
+import json
+import importlib
+
+
+def test_osm():
+    print("\n== Testing OpenStreetMap geocoder ==")
+    try:
+        from scrapper import OpenStreetMapAPI as osm
+        # use the geolocator directly
+        loc = osm.geolocator.geocode("Eiffel Tower, Paris")
+        if loc:
+            print("Geocoder OK:")
+            print(f"  address: {loc.address}")
+            print(f"  lat/lon: ({loc.latitude}, {loc.longitude})")
+        else:
+            print("Geocoder returned no result")
+    except Exception as e:
+        print("OpenStreetMap test failed:", e)
+
+
+def test_noaa():
+    print("\n== Testing NOAA scraper ==")
+    try:
+        from scrapper import NOAA as noaa
+        gdf = noaa.fetch_noaa_disasters()
+        if gdf is None:
+            print("NOAA returned None (error fetching).")
+            return
+        try:
+            # geopandas GeoDataFrame may be empty
+            n = len(gdf)
+        except Exception:
+            print("NOAA returned a non-GeoDataFrame object:\n", type(gdf))
+            return
+        print(f"NOAA returned GeoDataFrame with {n} records")
+        if n > 0:
+            print(gdf.head().to_json())
+    except Exception as e:
+        print("NOAA test failed:", e)
+
+
+def run_tiger_script():
+    print("\n== Running tigerDataConnection.py as a script ==")
+    script_path = os.path.join(os.path.dirname(__file__), 'tigerDataConnection.py')
+    if not os.path.exists(script_path):
+        print("tigerDataConnection.py not found at", script_path)
+        return
+    try:
+        # Use same Python interpreter
+        res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=60)
+        print("--- STDOUT ---")
+        print(res.stdout)
+        print("--- STDERR ---")
+        print(res.stderr)
+        print("Return code:", res.returncode)
+    except subprocess.TimeoutExpired:
+        print("tigerDataConnection script timed out")
+    except Exception as e:
+        print("Error running tigerDataConnection.py:", e)
+
+
+def show_migration_preview():
+    print("\n== Migration file preview ==")
+    mig = os.path.join(os.path.dirname(__file__), 'migrations', '001_create_observations.sql')
+    if not os.path.exists(mig):
+        print("Migration file not found:", mig)
+        return
+    with open(mig, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    print(''.join(lines[:200]))
+
+
+def main():
+    parser = argparse.ArgumentParser(description='EvacAssist quick tester')
+    parser.add_argument('action', nargs='?', default='all', choices=['all','osm','noaa','tiger','mig'], help='which test to run')
+    args = parser.parse_args()
+
+    if args.action == 'all':
+        test_osm()
+        test_noaa()
+        run_tiger_script()
+        show_migration_preview()
+    elif args.action == 'osm':
+        test_osm()
+    elif args.action == 'noaa':
+        test_noaa()
+    elif args.action == 'tiger':
+        run_tiger_script()
+    elif args.action == 'mig':
+        show_migration_preview()
+
+
+if __name__ == '__main__':
+    main()

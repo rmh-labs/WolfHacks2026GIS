@@ -1,0 +1,44 @@
+﻿"""
+Simple DB check utility that connects using tigerDataConnection and prints
+row counts and a sample from the noaa_events and osm_geocodes tables.
+
+Usage: python EvacAssist/db_check.py
+"""
+from tigerDataConnection import get_psycopg_connection
+import os
+
+
+def sample_table(conn, table, limit=5):
+    cur = conn.cursor()
+    try:
+        cur.execute(f"SELECT count(*) FROM {table}")
+        cnt = cur.fetchone()[0]
+        print(f"{table}: {cnt} rows")
+        cur.execute(f"SELECT id, event_name, start_time, ST_AsText(geom) FROM {table} ORDER BY start_time DESC NULLS LAST LIMIT %s", (limit,))
+        rows = cur.fetchall()
+        for r in rows:
+            print(r)
+    except Exception as e:
+        print(f"Error sampling {table}: {e}")
+    finally:
+        cur.close()
+
+if __name__ == '__main__':
+    # Check migration file presence in multiple expected locations
+    base = os.path.dirname(__file__)
+    candidates = [
+        os.path.join(base, 'migrations', '001_create_observations.sql'),
+        os.path.join(os.path.dirname(base), 'migrations', '001_create_observations.sql'),
+        os.path.join(os.getcwd(), 'migrations', '001_create_observations.sql')
+    ]
+    for p in candidates:
+        print('Checking migration path:', p, '->', os.path.exists(p))
+
+    conn = None
+    try:
+        conn = get_psycopg_connection()
+        sample_table(conn, 'noaa_events')
+        sample_table(conn, 'osm_geocodes')
+    finally:
+        if conn:
+            conn.close()

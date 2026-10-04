@@ -1,0 +1,89 @@
+﻿import requests
+import geopandas as gpd
+from shapely.geometry import shape
+import tigerDataConnection as tdc
+import uuid
+
+#Fetches live active weather alerts from NOAA, filters for major events,
+#then transforms the data into a GeoDataFrame
+def fetch_noaa_disasters():
+    # User agent information
+    url = "https://api.weather.gov/alerts/active"
+    headers = {
+        "User-Agent": "HackPack (rehathaw@ncsu.edu)",
+        "Accept": "application/geo+json"
+    }
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Error fetching from NOAA: {response.status_code}")
+        return None
+
+    raw_geojson = response.json()
+    
+    # Aggregating only the events I care about for my dashboard
+    target_events = ["Tornado Warning", "Flash Flood Warning", 
+                     "Severe Thunderstorm Warning", "Hurricane Warning", "Tsunami Warning"]
+    
+    processed_features = []
+    
+    for feature in raw_geojson.get("features", []):
+        props = feature.get("properties", {})
+        geom = feature.get("geometry")
+        
+        event_name = props.get("event", "")
+        
+        # Weeds out events I did not select, as well as events without polygon data
+        if event_name not in target_events or geom is None:
+            continue
+            
+        # 1. Mapping events to their sound and name for the db
+        if "Tornado" in event_name:
+            app_event_type = "Tornado"
+            audio_trigger = "noise_surge"
+        elif "Thunderstorm" in event_name:
+            app_event_type = "Storm"
+            audio_trigger = "percussive_strike"
+        elif "Flood" in event_name:
+            app_event_type = "Flood"
+            audio_trigger = "water_rush" # Assuming you add this to Tone.js
+        elif "Hurricane" in event_name:
+            app_event_type = "Hurricane"
+            audio_trigger = "noise_surge"
+        else:
+            app_event_type = "Other"
+            audio_trigger = "none"
+
+        # 2. Extract Data
+        record = {
+            "event_id": str(uuid.uuid4()),
+            "event_type": app_event_type,
+            "severity": props.get("severity", "Unknown"), # Extreme, Severe, Moderate
+            "magnitude": None, # NOAA doesn't use magnitude, USGS does for earthquakes
+            "audio_trigger": audio_trigger,
+            "status": "Active",
+            "start_time": props.get("effective"),
+            "source_api": "NOAA_NWS",
+            "metadata": str({"headline": props.get("headline"), "urgency": props.get("urgency")}),
+            "geometry": shape(geom) # Convert GeoJSON dict to Shapely geometry object
+        }
+        
+        processed_features.append(record)
+
+    if not processed_features:
+        print("No severe target events active at this moment.")
+        return gpd.GeoDataFrame()
+
+    # 3. Convert to GeoPandas DataFrame
+    gdf = gpd.GeoDataFrame(processed_features, geometry="geometry")
+    
+    # Ensure it's in the standard GPS coordinate system (WGS84) for Leaflet/PostGIS
+    gdf = gdf.set_crs("EPSG:4326")
+    return gdf
+
+
+        
+    # In your actual ETL loop, you would push this to your DB here:
+    from sqlalchemy import create_engine
+    engine = create_engine("postgresql://user:pass@host/db")
+    disaster_df.rename(columns={'geometry': 'geom'}).to_postgis("disaster_events", engine, if_exists="append", index=False)

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Disaster & Shelter Intelligence</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>tailwind.config = {
+            darkMode: 'class', // Enable class-based dark mode
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#0f172a',
+                        darker: '#020617',
+                        panel: '#1e293b',
+                        accent: '#3b82f6',
+                        danger: '#ef4444',
+                        safe: '#10b981',
+                        warning: '#f59e0b',
+                        disease: '#84cc16' // Lime green for disease zones
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }</script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden; /* Prevent body scroll, manage scrolling in panels */
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Custom scrollbar for panels */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .map-container {
+            height: calc(100vh - 64px);
+        }
+
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .leaflet-popup-content-wrapper {
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .leaflet-popup-content {
+            margin: 12px;
+        }
+
+        /* Custom Earthquake Gradient Icon */
+        .quake-icon {
+            background: radial-gradient(circle, rgba(239,68,68,0.85) 0%, rgba(239,68,68,0.4) 40%, rgba(239,68,68,0) 70%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+            text-shadow: 0px 0px 4px rgba(0,0,0,0.8);
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen font-sans antialiased bg-gray-50 text-gray-900 dark:bg-darker dark:text-f8fafc transition-colors duration-300">
+
+    <header class="h-16 bg-white dark:bg-panel border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-6 z-20 shrink-0 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg">
+                <i class="fa-solid fa-globe text-white text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-gray-900 dark:text-white">GeoSafe Analytics</h1>
+                <p class="text-xs text-gray-500 dark:text-gray-400 font-medium">Community Resilience & Recovery Intelligence</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <button id="themeToggle" class="text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800" title="Toggle Light/Dark Mode">
+                <i class="fa-solid fa-moon dark:hidden"></i>
+                <i class="fa-solid fa-sun hidden dark:block"></i>
+            </button>
+            <button onclick="document.getElementById('loginModal').classList.remove('hidden')" class="bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white px-4 py-1.5 rounded-lg text-sm border border-gray-300 dark:border-gray-600 font-medium transition-colors flex items-center gap-2 shadow-sm">
+                <i class="fa-solid fa-mobile-screen text-accent"></i>
+                <span>Connect Companion App</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden relative">
+
+        <aside class="w-96 bg-white/95 dark:bg-panel/95 border-r border-gray-200 dark:border-gray-800 flex flex-col z-10 shrink-0 overflow-y-auto">
+            <div class="p-5 space-y-5">
+
+                <!-- Time Context / Historic Data -->
+                <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-inner">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-300">Time Context</h3>
+                        <span id="live-indicator" class="text-[10px] bg-safe/20 text-safe border border-safe/30 px-2 py-0.5 rounded uppercase font-bold flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-safe animate-pulse"></span> Live
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <label class="block text-gray-500 mb-1">Start Date</label>
+                            <input type="date" class="w-full bg-white dark:bg-panel border border-gray-200 dark:border-gray-700 rounded p-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-accent">
+                        </div>
+                        <div>
+                            <label class="block text-gray-500 mb-1">End Date</label>
+                            <input type="date" class="w-full bg-white dark:bg-panel border border-gray-200 dark:border-gray-700 rounded p-1.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-accent">
+                        </div>
+                    </div>
+                    <button class="w-full mt-3 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 py-1.5 rounded text-xs font-medium transition-colors border border-gray-300 dark:border-gray-600">
+                        <i class="fa-solid fa-clock-rotate-left mr-1"></i> Load Historic Data
+                    </button>
+                </div>
+
+                <!-- Status Overview Cards -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-inner">
+                        <div class="text-gray-500 dark:text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Active Alerts</div>
+                        <div class="text-3xl font-bold text-danger">37</div>
+                        <div class="text-xs text-gray-500 mt-1"><i class="fa-solid fa-arrow-up text-danger"></i> 18% vs last week</div>
+                    </div>
+                    <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-inner">
+                        <div class="text-gray-500 dark:text-gray-400 text-xs font-semibold uppercase tracking-wider mb-1">Shelters Ready</div>
+                        <div class="text-3xl font-bold text-safe">1,402</div>
+                        <div class="text-xs text-gray-500 mt-1"><i class="fa-solid fa-check text-safe"></i> Verified via OSM</div>
+                    </div>
+                </div>
+
+                <!-- Filters & Layers -->
+                <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-300 mb-3">Risk & Impact Layers</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Severity Filter</label>
+                            <input type="range" min="1" max="5" value="3" class="w-full accent-danger">
+                        </div>
+                        <div class="pt-2 border-t border-gray-200 dark:border-gray-800 mt-3 grid grid-cols-1 gap-y-2">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-storm" checked class="rounded w-4 h-4 accent-blue-500">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Storms & Floods <span class="text-gray-400 ml-1">(w/ Standard Shelters)</span></span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-tornado" checked class="rounded w-4 h-4 accent-gray-500">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Tornadoes <span class="text-gray-400 ml-1">(w/ Reinforced Buildings)</span></span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-earthquake" checked class="rounded w-4 h-4 accent-red-500">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Earthquakes <span class="text-gray-400 ml-1">(w/ Open Assembly)</span></span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-tsunami" checked class="rounded w-4 h-4 accent-blue-700">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Tsunamis <span class="text-gray-400 ml-1">(w/ High Ground)</span></span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-wildfire" checked class="rounded w-4 h-4 accent-orange-500">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Wildfires <span class="text-gray-400 ml-1">(w/ Air-Filtered Hubs)</span></span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-disease" checked class="rounded w-4 h-4 accent-disease">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Disease Zones <span class="text-gray-400 ml-1">(w/ Medical Hubs)</span></span>
+                            </label>
+                        </div>
+                        <div class="pt-2 border-t border-gray-200 dark:border-gray-800 mt-2 space-y-2">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-vuln" class="rounded w-4 h-4 accent-purple-500">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">Vulnerable Communities (Census)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="toggle-heatmap" class="rounded w-4 h-4 accent-danger">
+                                <span class="text-xs text-gray-700 dark:text-gray-300">911 Call Density Heatmap</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity Feed -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-300 mb-3">Recent Activity Stream</h3>
+                    <div class="space-y-3" id="activity-feed">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Event Type Distribution Chart -->
+                <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+                    <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-300 mb-3 flex items-center justify-between">
+                        Global Event Distribution
+                        <i class="fa-solid fa-chart-pie text-gray-400 dark:text-gray-500"></i>
+                    </h3>
+                    <div class="h-48 relative w-full">
+                        <canvas id="eventChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- API Connection Status Panel -->
+                <div class="bg-gray-50 dark:bg-dark rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-inner">
+                    <h3 class="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired"></i> Live Data Feeds
+                    </h3>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="flex items-center gap-2 bg-white dark:bg-panel px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+                            <span class="w-2 h-2 rounded-full bg-safe animate-pulse shadow-[0_0_5px_#10b981]"></span>
+                            <span class="text-gray-700 dark:text-gray-300 font-medium">Tiger Cloud</span>
+                        </div>
+                        <div class="flex items-center gap-2 bg-white dark:bg-panel px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+                            <span class="w-2 h-2 rounded-full bg-safe animate-pulse shadow-[0_0_5px_#10b981]"></span>
+                            <span class="text-gray-700 dark:text-gray-300 font-medium">OpenStreetMap</span>
+                        </div>
+                        <div class="flex items-center gap-2 bg-white dark:bg-panel px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+                            <span class="w-2 h-2 rounded-full bg-safe animate-pulse shadow-[0_0_5px_#10b981]"></span>
+                            <span class="text-gray-700 dark:text-gray-300 font-medium">NOAA Weather</span>
+                        </div>
+                        <div class="flex items-center gap-2 bg-white dark:bg-panel px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700">
+                            <span class="w-2 h-2 rounded-full bg-safe animate-pulse shadow-[0_0_5px_#10b981]"></span>
+                            <span class="text-gray-700 dark:text-gray-300 font-medium">USGS Seismic</span>
+                        </div>
+                    </div>
+
+                    <!-- Music of Earth Toggle -->
+                    <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800 flex justify-between items-center">
+                        <div>
+                            <div class="text-xs text-gray-800 dark:text-gray-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-music text-accent"></i> Music of Earth
+                            </div>
+                            <div class="text-[10px] text-gray-500">Live sonification of geospatial events</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-sonification" class="sr-only peer">
+                            <div class="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-accent"></div>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <div class="flex-1 relative bg-gray-200 dark:bg-gray-900">
+            <div id="map" class="w-full h-full z-0"></div>
+
+            <!-- Map Legend (Floating) -->
+            <div class="absolute bottom-6 right-6 bg-white/90 dark:bg-panel/90 glass-panel border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-2xl z-10 w-72">
+                <h4 class="text-xs font-bold text-gray-800 dark:text-gray-300 uppercase tracking-wider mb-2">Map Legend</h4>
+                <div class="grid grid-cols-2 gap-x-2 gap-y-2 text-xs text-gray-700 dark:text-gray-300">
+                    <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-danger"></span> Hurricane</div>
+                    <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full" style="background: radial-gradient(circle, #ef4444 0%, transparent 100%); border: 1px solid red"></span> Earthquake</div>
+                    <div class="flex items-center gap-1.5"><span class="w-4 h-1 bg-gray-500 border-t border-gray-700 border-dashed"></span> Tornado Path</div>
+                    <div class="flex items-center gap-1.5"><span class="w-4 h-1 bg-blue-700 flex items-center justify-center text-[8px] text-white">►</span> Tsunami Path</div>
+                    <div class="flex items-center gap-1.5"><span class="w-4 h-4 bg-orange-500/40 border border-orange-500 rounded-sm"></span> Wildfire Area</div>
+                    <div class="flex items-center gap-1.5"><span class="w-4 h-4 bg-lime-500/40 border border-lime-500 rounded-sm"></span> Disease Zone</div>
+
+                    <div class="col-span-2 text-[10px] font-bold text-gray-500 uppercase mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">Contextual Safe Zones</div>
+                    <div class="flex items-center gap-1.5"><i class="fa-solid fa-house-medical text-emerald-500"></i> Standard Shelter</div>
+                    <div class="flex items-center gap-1.5"><i class="fa-solid fa-building-shield text-slate-500"></i> Reinforced Bldg</div>
+                    <div class="flex items-center gap-1.5"><i class="fa-solid fa-tree text-green-600"></i> Open Assembly</div>
+                    <div class="flex items-center gap-1.5"><i class="fa-solid fa-mountain text-teal-600"></i> High Ground</div>
+                    <div class="flex items-center gap-1.5 col-span-2"><i class="fa-solid fa-notes-medical text-lime-600"></i> Medical / Filtered Hub</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Citizen Sync Modal -->
+    <div id="loginModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm">
+        <div class="bg-white dark:bg-panel border border-gray-200 dark:border-gray-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <button onclick="document.getElementById('loginModal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+
+            <div class="text-center mb-6">
+                <div class="w-12 h-12 rounded-full bg-gradient-to-br from-accent to-purple-600 flex items-center justify-center shadow-lg mx-auto mb-3">
+                    <i class="fa-solid fa-users text-white text-xl"></i>
+                </div>
+                <h2 class="text-xl font-bold text-gray-900 dark:text-white">Citizen Portal Sync</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Connect to view your family disaster plan, active safe zones, and live evacuation routes.</p>
+            </div>
+
+            <form class="space-y-4" onsubmit="event.preventDefault(); document.getElementById('loginModal').classList.add('hidden'); alert('In a real app, this connects to the user database to sync safe routes and plans!');">
+                <div>
+                    <label class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Companion App Email</label>
+                    <input type="email" class="w-full bg-gray-50 dark:bg-dark border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-accent" placeholder="family@example.com">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Sync Passcode (Found in app)</label>
+                    <input type="password" class="w-full bg-gray-50 dark:bg-dark border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-accent" placeholder="••••••••">
+                </div>
+                <button type="submit" class="w-full bg-accent hover:bg-blue-600 text-white font-medium py-2.5 rounded-lg transition-colors mt-2 shadow-lg shadow-blue-500/20">
+                    Sync Device & Data
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>// --- STREAMING_CHUNK: Setup Map and Theme Toggling ---
+        const map = L.map('map', { zoomControl: false }).setView([38, -95], 4);
+        L.control.zoom({ position: 'topleft' }).addTo(map);
+
+        // Define Light and Dark base layers
+        const darkBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+        });
+        const lightBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+        });
+
+        // Initialize with Dark theme
+        darkBasemap.addTo(map);
+
+        // Theme Toggle Logic
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            const html = document.documentElement;
+            html.classList.toggle('dark');
+
+            if (html.classList.contains('dark')) {
+                map.removeLayer(lightBasemap);
+                darkBasemap.addTo(map);
+                if(window.eventChartInstance) {
+                    window.eventChartInstance.options.plugins.legend.labels.color = '#cbd5e1';
+                    window.eventChartInstance.update();
+                }
+            } else {
+                map.removeLayer(darkBasemap);
+                lightBasemap.addTo(map);
+                if(window.eventChartInstance) {
+                    window.eventChartInstance.options.plugins.legend.labels.color = '#475569';
+                    window.eventChartInstance.update();
+                }
+            }
+        });
+
+        // --- STREAMING_CHUNK: Contextual Icons & Mock Data ---
+
+        // Helper to generate contextual shelter icons
+        const getShelterIcon = (faClass, colorClass) => L.divIcon({
+            className: 'bg-transparent',
+            html: `<div class="w-6 h-6 rounded-full bg-white dark:bg-panel border border-gray-300 dark:border-gray-600 flex items-center justify-center shadow-lg"><i class="fa-solid ${faClass} ${colorClass} text-xs"></i></div>`,
+            iconSize: [24, 24], iconAnchor: [12, 12]
+        });
+
+        // 1. Storms & Floods
+        const stormData = L.geoJSON({
+            "type": "FeatureCollection", "features": [
+                { "type": "Feature", "properties": { "type": "Hurricane", "name": "Hurricane Zeta" }, "geometry": { "type": "Point", "coordinates": [-85.1, 28.5] } },
+                { "type": "Feature", "properties": { "type": "Thunderstorm", "name": "Severe Cell Path" }, "geometry": { "type": "LineString", "coordinates": [[-90.1, 31.0], [-87.2, 32.5], [-85.0, 33.0]] } },
+                { "type": "Feature", "properties": { "type": "Flash Flood", "name": "River Overflow" }, "geometry": { "type": "LineString", "coordinates": [[-100.1, 38.0], [-99.5, 37.8], [-99.0, 37.5]] } }
+            ]
+        }, {
+            style: f => f.properties.type === 'Thunderstorm' ? {color: '#a855f7', weight: 4} : {color: '#06b6d4', weight: 4},
+            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 12, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 0.8 }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+        const stormShelters = L.geoJSON({
+            "type": "FeatureCollection", "features": [
+                { "type": "Feature", "properties": { "name": "Red Cross Center A", "type": "Standard Shelter" }, "geometry": { "type": "Point", "coordinates": [-85.3, 28.8] } },
+                { "type": "Feature", "properties": { "name": "Community High School", "type": "Standard Shelter" }, "geometry": { "type": "Point", "coordinates": [-84.9, 28.3] } }
+            ]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: getShelterIcon('fa-house-medical', 'text-emerald-500') }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong><i class="fa-solid fa-house-medical text-emerald-500 mr-1"></i>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 2. Tornadoes
+        const tornadoData = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "type": "Tornado", "name": "EF3 Trajectory" }, "geometry": { "type": "LineString", "coordinates": [[-95.2, 34.1], [-94.5, 34.8], [-93.8, 35.5]] } }]
+        }, {
+            style: { color: '#6b7280', weight: 4, dashArray: '5, 10' },
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+        const tornadoShelters = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "name": "Underground Bunker", "type": "Reinforced Building" }, "geometry": { "type": "Point", "coordinates": [-94.2, 35.0] } }]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: getShelterIcon('fa-building-shield', 'text-slate-500') }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong><i class="fa-solid fa-building-shield text-slate-500 mr-1"></i>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 3. Earthquakes
+        const earthquakeData = L.geoJSON({
+            "type": "FeatureCollection", "features": [
+                { "type": "Feature", "properties": { "type": "Earthquake", "name": "San Andreas Fault", "mag": 6.8 }, "geometry": { "type": "Point", "coordinates": [-120.5, 36.2] } },
+                { "type": "Feature", "properties": { "type": "Earthquake", "name": "Offshore Tremor", "mag": 5.2 }, "geometry": { "type": "Point", "coordinates": [-124.5, 40.5] } }
+            ]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: L.divIcon({ className: 'quake-icon', html: `<span>${f.properties.mag}</span>`, iconSize: [f.properties.mag*10, f.properties.mag*10] }) }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>${f.properties.name}</strong><br>Magnitude: ${f.properties.mag}</div>`)
+        });
+        const earthquakeShelters = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "name": "Central Park Assembly", "type": "Open Area (Away from structures)" }, "geometry": { "type": "Point", "coordinates": [-120.0, 36.5] } }]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: getShelterIcon('fa-tree', 'text-green-600') }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong><i class="fa-solid fa-tree text-green-600 mr-1"></i>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 4. Tsunamis
+        const tsunamiData = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "type": "Tsunami", "name": "Pacific Wave Vector" }, "geometry": { "type": "LineString", "coordinates": [[-140.0, 45.0], [-125.0, 42.0]] } }]
+        }, {
+            style: { color: '#1d4ed8', weight: 5, dashArray: '15, 10' },
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+        const tsunamiShelters = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "name": "Mountaintop Refuge", "type": "High Ground Zone" }, "geometry": { "type": "Point", "coordinates": [-123.0, 42.5] } }]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: getShelterIcon('fa-mountain', 'text-teal-600') }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong><i class="fa-solid fa-mountain text-teal-600 mr-1"></i>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 5. Wildfires
+        const wildfireData = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "type": "Wildfire", "name": "Creek Fire Zone" }, "geometry": { "type": "Polygon", "coordinates": [[[-119.6, 37.3], [-119.4, 37.3], [-119.3, 37.1], [-119.6, 37.1], [-119.6, 37.3]]] } }]
+        }, {
+            style: { fillColor: '#f97316', color: '#ea580c', weight: 2, fillOpacity: 0.4 },
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 6. Disease Zones & Medical Hubs (Shared for Wildfire Air-filtering too)
+        const diseaseData = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "type": "Disease Zone", "threat": "Zika/West Nile" }, "geometry": { "type": "Polygon", "coordinates": [[[-82.0, 27.0], [-81.5, 27.5], [-81.0, 27.0], [-81.5, 26.5], [-82.0, 27.0]]] } }]
+        }, {
+            style: { fillColor: '#84cc16', color: '#65a30d', weight: 2, fillOpacity: 0.3 },
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong class="text-lime-700">${f.properties.type}</strong><br>Threat: ${f.properties.threat}</div>`)
+        });
+        const medicalShelters = L.geoJSON({
+            "type": "FeatureCollection", "features": [
+                { "type": "Feature", "properties": { "name": "Mobile Medical Hub", "type": "Bio/Disease Treatment" }, "geometry": { "type": "Point", "coordinates": [-81.7, 27.2] } },
+                { "type": "Feature", "properties": { "name": "Air-Filtered Arena", "type": "Smoke Evacuation" }, "geometry": { "type": "Point", "coordinates": [-119.2, 37.0] } }
+            ]
+        }, {
+            pointToLayer: (f, latlng) => L.marker(latlng, { icon: getShelterIcon('fa-notes-medical', 'text-lime-600') }),
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong><i class="fa-solid fa-notes-medical text-lime-600 mr-1"></i>${f.properties.name}</strong><br>${f.properties.type}</div>`)
+        });
+
+        // 7. Tactical Overlays
+        const mockVulnAreas = L.geoJSON({
+            "type": "FeatureCollection", "features": [{ "type": "Feature", "properties": { "type": "Trailer Park", "pop": 1200 }, "geometry": { "type": "Polygon", "coordinates": [[[-85.2, 28.6], [-85.0, 28.7], [-84.9, 28.5], [-85.2, 28.6]]] } }]
+        }, {
+            style: { fillColor: '#a855f7', color: '#7e22ce', weight: 2, fillOpacity: 0.4, dashArray: '4' },
+            onEachFeature: (f, l) => l.bindPopup(`<div class="font-sans"><strong>Vulnerable Zone</strong><br>Type: ${f.properties.type}<br>Est. Pop: ${f.properties.pop}</div>`)
+        });
+        const heatPoints = [[28.5, -85.1, 0.8], [28.6, -85.2, 0.9], [37.2, -119.5, 0.7], [35.1, -90.1, 0.6]];
+        const layerHeat = L.heatLayer(heatPoints, {radius: 30, blur: 20, maxZoom: 10, gradient: {0.4: 'blue', 0.6: 'cyan', 0.7: 'lime', 0.8: 'yellow', 1.0: 'red'}});
+
+        // --- STREAMING_CHUNK: Group Layers & Link Toggles ---
+
+        // Group disaster data with their contextual safe zones!
+        const groupStorm = L.layerGroup([stormData, stormShelters]).addTo(map);
+        const groupTornado = L.layerGroup([tornadoData, tornadoShelters]).addTo(map);
+        const groupEarthquake = L.layerGroup([earthquakeData, earthquakeShelters]).addTo(map);
+        const groupTsunami = L.layerGroup([tsunamiData, tsunamiShelters]).addTo(map);
+        const groupWildfire = L.layerGroup([wildfireData, medicalShelters]).addTo(map); // Shares medical/air hubs
+        const groupDisease = L.layerGroup([diseaseData, medicalShelters]).addTo(map);
+        const layerVuln = mockVulnAreas;
+
+        // Map Toggle IDs to their combined groups
+        const toggleMap = {
+            'toggle-storm': groupStorm,
+            'toggle-tornado': groupTornado,
+            'toggle-earthquake': groupEarthquake,
+            'toggle-tsunami': groupTsunami,
+            'toggle-wildfire': groupWildfire,
+            'toggle-disease': groupDisease,
+            'toggle-vuln': layerVuln,
+            'toggle-heatmap': layerHeat
+        };
+
+        for (const [id, layer] of Object.entries(toggleMap)) {
+            document.getElementById(id).addEventListener('change', function(e) {
+                e.target.checked ? map.addLayer(layer) : map.removeLayer(layer);
+            });
+        }
+
+        // --- STREAMING_CHUNK: Chart & Feed Initialization ---
+
+        // Activity Feed
+        const activityData = [
+            { time: '10m ago', text: 'Standing water reported in Zone 4. High <span class="text-disease font-medium">Mosquito/Disease Risk</span>.', icon: 'fa-mosquito', color: 'text-disease' },
+            { time: '1h ago', text: 'Seismic activity: <span class="text-danger">Mag 6.8</span> near San Andreas.', icon: 'fa-wave-square', color: 'text-danger' },
+            { time: '2h ago', text: '<span class="text-cyan-500">Flash Flood</span> warning path updated.', icon: 'fa-water', color: 'text-cyan-500' },
+            { time: '3h ago', text: 'New shelter added via OSM.', icon: 'fa-house-medical', color: 'text-safe' }
+        ];
+
+        const feedContainer = document.getElementById('activity-feed');
+        activityData.forEach(item => {
+            const el = document.createElement('div');
+            el.className = 'flex gap-3 items-start text-sm';
+            el.innerHTML = `<div class="mt-1 w-6 h-6 rounded-full bg-gray-200 dark:bg-darker border border-gray-300 dark:border-gray-700 flex items-center justify-center shrink-0"><i class="fa-solid ${item.icon} ${item.color} text-[10px]"></i></div><div><p class="text-gray-700 dark:text-gray-300 leading-snug">${item.text}</p><span class="text-[10px] text-gray-500">${item.time}</span></div>`;
+            feedContainer.appendChild(el);
+        });
+
+        // Chart.js Center Text Plugin
+        const centerTextPlugin = {
+            id: 'centerText',
+            beforeDraw: function(chart) {
+                if (chart.config.type !== 'doughnut') return;
+                const ctx = chart.ctx;
+                const chartArea = chart.chartArea;
+                const centerX = (chartArea.left + chartArea.right) / 2;
+                const centerY = (chartArea.top + chartArea.bottom) / 2;
+
+                ctx.restore();
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const fontSize = (chart.height / 114).toFixed(2);
+
+                // Color adapts based on html class
+                const isDark = document.documentElement.classList.contains('dark');
+
+                ctx.font = "bold " + fontSize + "em Inter, sans-serif";
+                ctx.fillStyle = isDark ? "#f8fafc" : "#0f172a";
+                ctx.fillText("37", centerX, centerY - 8);
+
+                ctx.font = "normal " + (fontSize * 0.4) + "em Inter, sans-serif";
+                ctx.fillStyle = isDark ? "#94a3b8" : "#64748b";
+                ctx.fillText("Total", centerX, centerY + 14);
+                ctx.save();
+            }
+        };
+
+        Chart.register(centerTextPlugin);
+
+        // Chart Init
+        const ctx = document.getElementById('eventChart').getContext('2d');
+        window.eventChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Paths (Storms)', 'Point (Quakes)', 'Areas (Fires)', 'Disease Zones'],
+                datasets: [{
+                    data: [15, 8, 10, 4],
+                    backgroundColor: ['#a855f7', '#ef4444', '#f97316', '#84cc16'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { color: '#cbd5e1', usePointStyle: true, padding: 10, font: { size: 10, family: "'Inter', sans-serif" } }
+                    },
+                    tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.9)', titleColor: '#fff', bodyColor: '#cbd5e1', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 }
+                }
+            }
+        });
+
+        // --- STREAMING_CHUNK: Music of Earth (Tone.js Sonification Engine) ---
+        let sonificationEnabled = false;
+        let demoInterval = null;
+
+        // Initialize Synthesizers
+        const synths = {
+            // Earthquakes: Deep Frequency Modulation (FM) Synth.
+            quake: new Tone.FMSynth({
+                harmonicity: 0.5, modulationIndex: 10,
+                oscillator: { type: "sine" },
+                modulation: { type: "sawtooth" },
+                envelope: { attack: 0.1, decay: 0.2, sustain: 0.8, release: 3 }
+            }).toDestination(),
+
+            // Tornadoes/Wind: Noise Synth mimicking swirling wind
+            wind: new Tone.NoiseSynth({
+                noise: { type: 'pink' },
+                envelope: { attack: 1.5, decay: 0.5, sustain: 1, release: 3 }
+            }).toDestination(),
+
+            // Floods/Storms: Membrane Synth for heavy, raindrop/thunder percussion
+            storm: new Tone.MembraneSynth({
+                pitchDecay: 0.05, octaves: 4,
+                oscillator: { type: "sine" },
+                envelope: { attack: 0.01, decay: 0.4, sustain: 0.01, release: 1.4 }
+            }).toDestination()
+        };
+
+        // Mix levels
+        synths.quake.volume.value = -5;
+        synths.wind.volume.value = -12;
+        synths.storm.volume.value = -8;
+
+        document.getElementById('toggle-sonification').addEventListener('change', async (e) => {
+            sonificationEnabled = e.target.checked;
+
+            if (sonificationEnabled) {
+                await Tone.start(); // Browser requires user interaction to start audio context
+                console.log('Audio Context Started: Music of Earth Online');
+                startDemoSimulation(); // Start pushing fake data for the hackathon presentation
+            } else {
+                if (demoInterval) clearInterval(demoInterval);
+            }
+        });
+
+        function playDisasterSound(type, severity) {
+            if (!sonificationEnabled) return;
+
+            if (type === 'Earthquake') {
+                // Map magnitude (e.g., 3.0 to 9.0) to pitch.
+                // Higher magnitude = DEEPER, more intense bass sound.
+                // Math: Mag 3 = ~135Hz, Mag 8 = ~60Hz (Sub-bass)
+                const freq = Math.max(40, 180 - (severity * 15));
+                synths.quake.triggerAttackRelease(freq, "2n");
+            }
+            else if (type === 'Tornado') {
+                synths.wind.triggerAttackRelease("1m"); // Swirling noise for a full measure
+            }
+            else if (type === 'Storm') {
+                // A low, thudding "thunder" drop
+                synths.storm.triggerAttackRelease("C1", "8n");
+                setTimeout(() => synths.storm.triggerAttackRelease("E1", "8n"), 150);
+            }
+        }
+
+        // Live Demo Loop to impress Hackathon Judges
+        function startDemoSimulation() {
+            if (demoInterval) clearInterval(demoInterval);
+
+            demoInterval = setInterval(() => {
+                const events = [
+                    { type: 'Earthquake', mag: (Math.random() * 5 + 3.5).toFixed(1), icon: 'fa-wave-square', color: 'text-danger' },
+                    { type: 'Tornado', mag: 'EF-2', icon: 'fa-wind', color: 'text-gray-500' },
+                    { type: 'Storm', mag: 'Severe', icon: 'fa-water', color: 'text-cyan-500' }
+                ];
+                const ev = events[Math.floor(Math.random() * events.length)];
+
+                // Trigger Sound
+                playDisasterSound(ev.type, parseFloat(ev.mag) || 5);
+
+                // Inject into Activity Feed
+                const feed = document.getElementById('activity-feed');
+                const el = document.createElement('div');
+                el.className = 'flex gap-3 items-start text-sm animate-pulse border-l-2 border-accent pl-2';
+
+                let textDesc = ev.type === 'Earthquake' ? `New Seismic Event: Magnitude ${ev.mag}` : `New ${ev.type} detected.`;
+
+                el.innerHTML = `
+                    <div class="mt-1 w-6 h-6 rounded-full bg-white dark:bg-panel shadow border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
+                        <i class="fa-solid ${ev.icon} ${ev.color} text-[10px]"></i>
+                    </div>
+                    <div>
+                        <p class="text-gray-800 dark:text-gray-200 font-medium leading-snug">${textDesc}</p>
+                        <span class="text-[10px] text-accent font-bold">LIVE API INGEST</span>
+                    </div>
+                `;
+
+                feed.prepend(el);
+
+                // Keep feed clean (max 6 items)
+                if(feed.children.length > 6) feed.removeChild(feed.lastChild);
+
+                // Highlight the UI briefly
+                setTimeout(() => { el.classList.remove('border-l-2', 'border-accent', 'pl-2', 'animate-pulse'); }, 2000);
+
+            }, 7500); // Triggers a new sound/event every 7.5 seconds
+        }</script>
+</body>
+</html>

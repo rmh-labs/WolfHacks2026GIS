@@ -1,0 +1,33 @@
+﻿
+import asyncio
+import psycopg2
+import asyncpg
+
+CONNECTION = "postgres://tsdbadmin:nddk8ftawo1cqq2f@mmsuny0be8.rlx5eobeob.tsdb.cloud.timescale.com:37279/tsdb?sslmode=require"
+
+async def main():
+    conn = await asyncpg.connect(CONNECTION)
+    extensions = await conn.fetch("select extname, extversion from pg_extension")
+    query = await conn.fetch("select created_dt from testtable limit 1")
+    print("==========================")
+    print (type(query))
+    for row in query:
+        print(row[0])
+    print("==========================")
+    for extension in extensions:
+        print(extension)
+    await conn.close()
+
+asyncio.run(main())
+
+print("Connection successful!")
+
+createTable = "CREATE TABLE testing (\nnames VARCHAR(100) PRIMARY KEY,\nseasons int NOT NULL,\ndays int NOT NULL\n)"
+
+conn = psycopg2.connect(CONNECTION)
+
+cursor = conn.cursor()
+#conn.commit()
+cursor.close()
+conn.close()
+print("Table created successfully!")
