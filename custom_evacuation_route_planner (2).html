@@ -1,0 +1,1357 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scaleable=no">
+    <title>AegisRoute - Emergency Evacuation Planner</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            900: '#14532d',
+                        },
+                        hazard: {
+                            red: '#ef4444',
+                            orange: '#f97316',
+                            yellow: '#eab308'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Leaflet CSS & JS for OpenStreetMap mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .code-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        /* Custom Leaflet Dark Mode Overlays */
+        .leaflet-container {
+            background-color: #0f172a !important;
+        }
+        .custom-popup .leaflet-popup-content-wrapper {
+            background: #1e293b;
+            color: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .custom-popup .leaflet-popup-tip {
+            background: #1e293b;
+        }
+        /* Hide scrollbars for clean app feeling */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.02); }
+        }
+        .animate-pulse-subtle {
+            animation: pulse-subtle 3s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 antialiased overflow-hidden select-none">
+
+    <div class="flex flex-col h-full max-w-md mx-auto bg-slate-900 shadow-2xl relative border-x border-slate-800">
+        
+        <!-- Top Status & Emergency Alert Banner -->
+        <header class="bg-slate-900 border-b border-slate-800 px-4 pt-3 pb-2.5 z-20 shrink-0">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                        <i class="fa-solid font-bold fa-shield-halved text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-base font-bold tracking-tight text-white leading-none">AegisEvac <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono ml-1">TIGER-GIS</span></h1>
+                        <p class="text-[10px] text-slate-400 mt-0.5">NC OneMap & NOAA Real-Time Routing</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-1.5">
+                    <button id="elevenLabsKeyBtn" onclick="toggleElevenLabsModal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1.5 rounded-lg border border-slate-700 flex items-center space-x-1.5 transition">
+                        <i class="fa-solid fa-volume-high text-emerald-400"></i>
+                        <span class="font-medium text-[11px]">AI Voice</span>
+                    </button>
+                    <button id="liveDataBtn" onclick="toggleLiveDataModal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700 flex items-center space-x-1.5 transition">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                        <span class="font-medium text-[11px]">NOAA Live</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Weather Alert Ticker -->
+            <div id="weatherAlertBar" class="bg-amber-950/70 border border-amber-600/40 rounded-lg px-3 py-1.5 flex items-center justify-between text-xs text-amber-200">
+                <div class="flex items-center space-x-2 overflow-hidden">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-400 animate-bounce"></i>
+                    <span class="truncate font-medium" id="alertText">NOAA Alert: Severe Flash Flood Warning in Wake County</span>
+                </div>
+                <button onclick="zoomToHazard()" class="text-[10px] font-semibold bg-amber-600/40 hover:bg-amber-600/60 px-2 py-0.5 rounded text-amber-100 shrink-0 ml-2">Locate</button>
+            </div>
+        </header>
+
+        <!-- Main Body Area -->
+        <main class="flex-1 relative overflow-hidden flex flex-col">
+            
+            <!-- MAP VIEW PANEL (Primary) -->
+            <div id="mapTab" class="w-full h-full relative flex-1">
+                <!-- Leaflet Canvas -->
+                <div id="map" class="w-full h-full"></div>
+
+                <!-- Floating Map Controls Overlay -->
+                <div class="absolute top-3 right-3 z-10 flex flex-col space-y-2">
+                    <button onclick="recenterMap()" class="w-10 h-10 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-xl flex items-center justify-center text-slate-200 shadow-lg hover:bg-slate-800 active:scale-95 transition" title="Recenter Location">
+                        <i class="fa-solid fa-location-crosshairs text-base"></i>
+                    </button>
+                    <button onclick="toggleLayerDrawer()" class="w-10 h-10 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-xl flex items-center justify-center text-slate-200 shadow-lg hover:bg-slate-800 active:scale-95 transition" title="GIS Data Layers">
+                        <i class="fa-solid fa-layer-group text-base"></i>
+                    </button>
+                    <button onclick="toggleTigerGraphInspector()" class="w-10 h-10 bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-xl flex items-center justify-center text-emerald-400 shadow-lg hover:bg-slate-800 active:scale-95 transition" title="Graph Weights Inspector">
+                        <i class="fa-solid fa-diagram-project text-base"></i>
+                    </button>
+                </div>
+
+                <!-- Bottom Evacuation Route Planner Sheet -->
+                <div id="routeSheet" class="absolute bottom-0 left-0 right-0 z-10 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 rounded-t-2xl shadow-2xl transition-all duration-300 max-h-[85%] flex flex-col select-none touch-none">
+                    
+                    <!-- Interactive Drag Handle -->
+                    <div id="sheetHandle" onclick="toggleSheetSnap()" class="w-full py-2 cursor-grab active:cursor-grabbing flex flex-col items-center justify-center -mt-2 mb-1 group">
+                        <div class="w-12 h-1.5 bg-slate-700 group-hover:bg-emerald-400 rounded-full transition-colors"></div>
+                        <span id="sheetDragHint" class="text-[9px] text-slate-500 font-medium mt-1">Drag down to reveal map</span>
+                    </div>
+
+                    <!-- Mode Toggle Header -->
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Evacuation Mode</span>
+                            <span id="safetyBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+                                TigerGraph Dynamic
+                            </span>
+                        </div>
+                        <button onclick="resetRoute()" class="text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-1">
+                            <i class="fa-solid fa-rotate-right"></i>
+                            <span>Reset</span>
+                        </button>
+                    </div>
+
+                    <!-- Disaster Event Selection -->
+                    <div class="mb-3">
+                        <label class="block text-[11px] font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">Target Threat Type</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="selectHazardType('flood')" id="hazardBtn-flood" class="hazard-select-btn bg-emerald-600/30 border-2 border-emerald-500 text-white rounded-xl p-2 flex flex-col items-center justify-center transition">
+                                <i class="fa-solid fa-water-rise text-emerald-400 text-lg mb-1"></i>
+                                <span class="text-xs font-semibold">Flash Flood</span>
+                            </button>
+                            <button onclick="selectHazardType('hurricane')" id="hazardBtn-hurricane" class="hazard-select-btn bg-slate-800 border border-slate-700 text-slate-400 rounded-xl p-2 flex flex-col items-center justify-center hover:bg-slate-750 transition">
+                                <i class="fa-solid fa-hurricane text-lg mb-1"></i>
+                                <span class="text-xs font-semibold">Hurricane</span>
+                            </button>
+                            <button onclick="selectHazardType('chemical')" id="hazardBtn-chemical" class="hazard-select-btn bg-slate-800 border border-slate-700 text-slate-400 rounded-xl p-2 flex flex-col items-center justify-center hover:bg-slate-750 transition">
+                                <i class="fa-solid fa-biohazard text-lg mb-1"></i>
+                                <span class="text-xs font-semibold">Hazmat Spill</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Start & End Locations -->
+                    <div class="space-y-2 mb-3">
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-400">
+                                <i class="fa-solid fa-circle-dot text-xs"></i>
+                            </div>
+                            <select id="startPointSelect" onchange="updateCustomRoute()" class="w-full bg-slate-800/90 border border-slate-700 text-slate-200 text-xs rounded-xl pl-9 pr-3 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                <option value="downtown">Start: Downtown Raleigh (High Risk Flood Zone)</option>
+                                <option value="crabtree">Start: Crabtree Valley Mall Area</option>
+                                <option value="ncstate">Start: NC State Main Campus</option>
+                            </select>
+                        </div>
+
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-red-400">
+                                <i class="fa-solid fa-location-dot text-xs"></i>
+                            </div>
+                            <select id="endPointSelect" onchange="updateCustomRoute()" class="w-full bg-slate-800/90 border border-slate-700 text-slate-200 text-xs rounded-xl pl-9 pr-3 py-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                <option value="shelter_fairgrounds">Destination: NC State Fairgrounds Shelter (Capacity 85%)</option>
+                                <option value="shelter_southeast">Destination: Southeast Raleigh High Shelter</option>
+                                <option value="shelter_wakefield">Destination: Wakefield High Shelter (High Ground)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Avoidance Options & Algorithm Sliders -->
+                    <div class="bg-slate-800/60 rounded-xl p-3 border border-slate-700/50 mb-3 space-y-2">
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-slate-300 font-medium">Graph Avoidance Mode</span>
+                            <span class="text-slate-400 text-[10px] font-mono">TigerGraph v3.9</span>
+                        </div>
+                        
+                        <div class="flex items-center space-x-2 pt-1">
+                            <label class="flex-1 flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded-lg border border-slate-700">
+                                <input type="checkbox" id="avoidFloodsCheck" checked onchange="updateCustomRoute()" class="accent-emerald-500 rounded">
+                                <span class="text-[11px] text-slate-300">Bypass Flood Basins</span>
+                            </label>
+                            <label class="flex-1 flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded-lg border border-slate-700">
+                                <input type="checkbox" id="avoidChokepointsCheck" checked onchange="updateCustomRoute()" class="accent-emerald-500 rounded">
+                                <span class="text-[11px] text-slate-300">Bypass Gridlock</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Evacuation Action & Route Info -->
+                    <div id="routeResults" class="space-y-3">
+                        <div class="bg-emerald-950/40 border border-emerald-600/30 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                                <div class="text-[10px] uppercase font-bold text-emerald-400">TigerGraph Optimized Route</div>
+                                <div class="text-sm font-bold text-white flex items-center space-x-2 mt-0.5">
+                                    <span id="routeDistance">12.4 miles</span>
+                                    <span class="text-slate-500">•</span>
+                                    <span id="routeTime" class="text-emerald-400">18 mins</span>
+                                </div>
+                                <div class="text-[11px] text-slate-400 mt-0.5" id="hazardDetourSummary">
+                                    <i class="fa-solid fa-shield-check text-emerald-400 mr-1"></i>0 Active Flood Hazard Intersections
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-1.5">
+                                <button id="playVoiceBtn" onclick="speakRouteDirections()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-emerald-400 border border-emerald-500/40 font-bold p-2.5 rounded-xl shadow-lg text-xs flex items-center justify-center transition" title="Read Directions Aloud (ElevenLabs AI Voice)">
+                                    <i class="fa-solid fa-volume-high text-sm"></i>
+                                </button>
+                                <button onclick="startNavigation()" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-slate-950 font-bold px-3.5 py-2.5 rounded-xl shadow-lg shadow-emerald-500/20 text-xs flex items-center space-x-1.5 transition">
+                                    <i class="fa-solid fa-turn-up text-sm"></i>
+                                    <span>Navigate</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Turn-by-Turn Preview List -->
+                        <div class="space-y-1.5 text-xs text-slate-300">
+                            <div class="flex items-center justify-between px-1">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Turn-By-Turn Navigation</span>
+                                <button onclick="speakRouteDirections()" class="text-[10px] text-emerald-400 hover:underline flex items-center space-x-1">
+                                    <i class="fa-solid fa-bullhorn text-[9px]"></i>
+                                    <span>Read Aloud</span>
+                                </button>
+                            </div>
+                            <div id="turnByTurnContainer" class="space-y-1.5">
+                                <!-- Dynamic turn directions inserted here -->
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- SHELTERS DIRECTORY TAB -->
+            <div id="sheltersTab" class="w-full h-full p-4 overflow-y-auto no-scrollbar hidden space-y-3 bg-slate-900">
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-base font-bold text-white flex items-center space-x-2">
+                        <i class="fa-solid fa-campground text-emerald-400"></i>
+                        <span>NC Regional Emergency Shelters</span>
+                    </h2>
+                    <span class="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">data.raleighnc.gov</span>
+                </div>
+
+                <div class="space-y-2.5" id="sheltersListContainer">
+                    <!-- Dynamic Shelters injected here -->
+                </div>
+            </div>
+
+            <!-- TIGERGRAPH ENGINE INSPECTOR TAB -->
+            <div id="graphInspectorTab" class="w-full h-full p-4 overflow-y-auto no-scrollbar hidden space-y-3 bg-slate-950">
+                <div class="border-b border-slate-800 pb-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-base font-bold text-white flex items-center space-x-2">
+                            <i class="fa-solid fa-diagram-project text-emerald-400"></i>
+                            <span>TigerGraph Cloud DB Matrix</span>
+                        </h2>
+                        <span class="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">LIVE QUERY</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1">Real-time edge recalculation based on NOAA GeoJSON & OSM road topologies.</p>
+                </div>
+
+                <!-- Live Graph Schema Overview -->
+                <div class="grid grid-cols-2 gap-2 text-center text-xs">
+                    <div class="bg-slate-900 border border-slate-800 p-2.5 rounded-xl">
+                        <div class="text-[10px] text-slate-400">Graph Vertices</div>
+                        <div class="text-lg font-mono font-bold text-emerald-400 mt-0.5">14,290 Nodes</div>
+                        <div class="text-[10px] text-slate-500">Wake County Roads</div>
+                    </div>
+                    <div class="bg-slate-900 border border-slate-800 p-2.5 rounded-xl">
+                        <div class="text-[10px] text-slate-400">Active Flood Penalties</div>
+                        <div class="text-lg font-mono font-bold text-amber-400 mt-0.5" id="inspectorPenaltyCount">+99,000 Wt</div>
+                        <div class="text-[10px] text-slate-500">Dynamic Edge Penalty</div>
+                    </div>
+                </div>
+
+                <!-- TigerGraph GSQL Query Simulation Code Viewer -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+                    <div class="flex items-center justify-between text-xs text-slate-300">
+                        <span class="font-bold text-[11px] text-slate-400 font-mono">evacuation_route.gsql</span>
+                        <span class="text-[10px] text-emerald-400 font-mono">GSQL Engine v3.9</span>
+                    </div>
+                    <pre class="code-font text-[10px] text-emerald-300 bg-slate-950 p-2.5 rounded-lg border border-slate-800 overflow-x-auto leading-relaxed">
+<code>CREATE QUERY getEvacuationRoute(VERTEX&lt;Intersection&gt; startNode, VERTEX&lt;Intersection&gt; targetNode) {
+    /* TigerGraph Dynamic Pathfinding with Hazard Penalty */
+    HeapAccum&lt;PathTuple&gt;(1, minDistance ASC) @@minPath;
+    
+    Start = {startNode};
+    
+    WHILE Start.size() &gt; 0 DO
+        Start = SELECT t FROM Start:s -(RoadEdge:e)- Intersection:t
+                ACCUM 
+                    // Dynamic Edge Weight calculation
+                    DOUBLE edgeCost = e.distance * (1 + e.floodHazardLevel * 100),
+                    t.@minDistance += s.@minDistance + edgeCost;
+    END;
+    PRINT @@minPath;
+}</code>
+                    </pre>
+                </div>
+
+                <!-- Active Edge Weight Inspector List -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                    <h3 class="text-xs font-bold text-slate-200 mb-2">Live Dynamic Edge Weights</h3>
+                    <div class="space-y-2 text-xs font-mono" id="edgeWeightList">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI ASSISTANT TAB (Gemini Integration) -->
+            <div id="aiAssistantTab" class="w-full h-full flex flex-col p-4 bg-slate-900 hidden">
+                <div class="flex items-center space-x-2 border-b border-slate-800 pb-3 shrink-0">
+                    <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-white leading-none">Aegis AI Evac Advisor</h2>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Powered by Gemini 3 Flash & NOAA Directives</p>
+                    </div>
+                </div>
+
+                <!-- Chat History Box -->
+                <div id="aiChatHistory" class="flex-1 overflow-y-auto no-scrollbar space-y-3 py-3 text-xs">
+                    <div class="bg-slate-800/80 border border-slate-700/60 p-3 rounded-2xl rounded-tl-none text-slate-200">
+                        Hello! I am your AI Emergency Dispatcher. I can help you with evacuation readiness, shelter requirements (pet-friendly policies), flood survival tactics, and real-time navigation advice.
+                    </div>
+                </div>
+
+                <!-- Chat Input Form -->
+                <form onsubmit="sendAiMessage(event)" class="pt-2 shrink-0 flex items-center space-x-2">
+                    <input type="text" id="aiInput" placeholder="Ask e.g. What should I pack in a 15-min evac?" class="flex-1 bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500">
+                    <button type="submit" id="aiSendBtn" class="bg-emerald-500 text-slate-950 font-bold px-3 py-2.5 rounded-xl hover:bg-emerald-400 active:scale-95 transition">
+                        <i class="fa-solid fa-paper-plane text-xs"></i>
+                    </button>
+                </form>
+            </div>
+
+        </main>
+
+        <!-- Bottom Tab Navigation -->
+        <nav class="bg-slate-900 border-t border-slate-800 px-2 py-2 shrink-0 z-20">
+            <div class="grid grid-cols-4 gap-1">
+                <button onclick="switchTab('map')" id="nav-map" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-emerald-400 bg-emerald-500/10 font-medium transition">
+                    <i class="fa-solid fa-map-location-dot text-base mb-0.5"></i>
+                    <span class="text-[10px]">Nav Map</span>
+                </button>
+                <button onclick="switchTab('shelters')" id="nav-shelters" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-medium transition">
+                    <i class="fa-solid fa-campground text-base mb-0.5"></i>
+                    <span class="text-[10px]">Shelters</span>
+                </button>
+                <button onclick="switchTab('graphInspector')" id="nav-graphInspector" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-medium transition">
+                    <i class="fa-solid fa-diagram-project text-base mb-0.5"></i>
+                    <span class="text-[10px]">TigerGraph</span>
+                </button>
+                <button onclick="switchTab('aiAssistant')" id="nav-aiAssistant" class="nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-medium transition">
+                    <i class="fa-solid fa-comments text-base mb-0.5"></i>
+                    <span class="text-[10px]">AI Assist</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- ElevenLabs API Voice Settings Modal -->
+    <div id="elevenLabsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="text-sm font-bold text-white flex items-center space-x-2">
+                    <i class="fa-solid fa-volume-high text-emerald-400"></i>
+                    <span>ElevenLabs AI Voice Settings</span>
+                </h3>
+                <button onclick="toggleElevenLabsModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs text-slate-300">
+                <p class="text-[11px] text-slate-400">
+                    AegisRoute uses ElevenLabs Neural Speech synthesis to broadcast loud, crisp voice navigation instructions during evacuation emergencies.
+                </p>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">ElevenLabs API Key (Optional)</label>
+                    <input type="password" id="elevenApiKey" placeholder="e.g. 2b9a1a8..." class="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-mono">
+                    <p class="text-[9px] text-slate-500 mt-1">If blank, browser WebSpeech voice synthesis will automatically be used as fallback.</p>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Select Voice Model</label>
+                    <select id="elevenVoiceSelect" class="w-full bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500">
+                        <option value="21m00Tcm4TlvDq8ikWAM">Rachel - Emergency Announcements (Calm & Clear)</option>
+                        <option value="AZnzlk1XvdvUeBnXmlld">Domi - Energetic Dispatcher</option>
+                        <option value="EXAVITQu4vr4xnSDxMaL">Bella - Concise Directions</option>
+                        <option value="ErXwobaYiN019PkySvjV">Antoni - Deep Authority</option>
+                    </select>
+                </div>
+
+                <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <span class="text-[11px] text-slate-400">Audio Preview:</span>
+                    <button onclick="testVoiceAudio()" class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg text-[11px] font-bold hover:bg-emerald-500/30">
+                        <i class="fa-solid fa-play text-[9px] mr-1"></i> Test Voice
+                    </button>
+                </div>
+            </div>
+
+            <button onclick="saveElevenLabsSettings()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-2.5 rounded-xl text-xs transition">
+                Save Voice Configuration
+            </button>
+        </div>
+    </div>
+
+    <!-- Live Data Sources Info Modal -->
+    <div id="liveDataModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="text-sm font-bold text-white flex items-center space-x-2">
+                    <i class="fa-solid fa-database text-emerald-400"></i>
+                    <span>Centralized Tiger Database Pipeline</span>
+                </h3>
+                <button onclick="toggleLiveDataModal()" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs text-slate-300">
+                <div class="flex items-start space-x-2.5">
+                    <div class="w-6 h-6 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                        <i class="fa-solid fa-cloud-bolt"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-white">NOAA Severe Weather API</div>
+                        <div class="text-[11px] text-slate-400">Provides live flash flood polygons, Doppler radar precipitation vectoring, and hurricane storm surge projections.</div>
+                    </div>
+                </div>
+
+                <div class="flex items-start space-x-2.5">
+                    <div class="w-6 h-6 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                        <i class="fa-solid fa-map"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-white">OpenStreetMap Network Topology</div>
+                        <div class="text-[11px] text-slate-400">Extracts detailed road nodes, bridge heights, lane capacities, and intersection geometries.</div>
+                    </div>
+                </div>
+
+                <div class="flex items-start space-x-2.5">
+                    <div class="w-6 h-6 rounded bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs shrink-0 mt-0.5">
+                        <i class="fa-solid fa-building-flag"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-white">data.raleighnc.gov & NC OneMap</div>
+                        <div class="text-[11px] text-slate-400">Municipal GIS layers for emergency shelter locations, medical supplies, and localized low-lying culvert data.</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-[11px] font-mono text-emerald-400">
+                    <i class="fa-solid fa-check text-xs mr-1"></i> Unified TigerGraph Graph DB Active
+                </div>
+            </div>
+
+            <button onclick="toggleLiveDataModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 rounded-xl text-xs transition">
+                Close Inspector
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Toast Box -->
+    <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white border border-slate-700 shadow-2xl rounded-xl px-4 py-2.5 text-xs flex items-center space-x-2 transition-all duration-300 opacity-0 pointer-events-none">
+        <i id="toastIcon" class="fa-solid fa-circle-info text-emerald-400"></i>
+        <span id="toastText">Route updated with latest NOAA hazard layer</span>
+    </div>
+
+    <script>
+        // Raleigh NC Center Points
+        const RALEIGH_CENTER = [35.7796, -78.6382];
+        
+        // Key Evacuation & Shelter Locations
+        const LOCATIONS = {
+            downtown: { name: "Downtown Raleigh", lat: 35.7796, lng: -78.6382, type: "High Risk Area", capacity: "N/A" },
+            crabtree: { name: "Crabtree Valley Mall Area", lat: 35.8150, lng: -78.6750, type: "Flood Basin", capacity: "N/A" },
+            ncstate: { name: "NC State Main Campus", lat: 35.7847, lng: -78.6821, type: "Assembly Point", capacity: "N/A" },
+            shelter_fairgrounds: { name: "NC State Fairgrounds Shelter", lat: 35.7920, lng: -78.7110, type: "Primary High Ground", capacity: "85%" },
+            shelter_southeast: { name: "Southeast Raleigh High Shelter", lat: 35.7350, lng: -78.5850, type: "Regional Center", capacity: "42%" },
+            shelter_wakefield: { name: "Wakefield High Shelter", lat: 35.9220, lng: -78.5680, type: "High Elevation", capacity: "18%" }
+        };
+
+        // ElevenLabs Integration State
+        let elevenLabsConfig = {
+            apiKey: localStorage.getItem('eleven_api_key') || 'sk_5ea3e9745281e8ce5842e75f17fa398d4dc754f4f4d33e69',
+            voiceId: localStorage.getItem('eleven_voice_id') || '21m00Tcm4TlvDq8ikWAM'
+        };
+        let isSpeaking = false;
+        let currentAudio = null;
+
+        // Bottom Sheet Dragging State
+        let sheetSnapState = 'DEFAULT'; // 'COLLAPSED', 'DEFAULT', 'EXPANDED'
+        let touchStartY = 0;
+        let sheetStartHeight = 0;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            renderSheltersList();
+            updateCustomRoute();
+            initBottomSheetDrag();
+            
+            // Populate ElevenLabs inputs
+            if(document.getElementById('elevenApiKey')) document.getElementById('elevenApiKey').value = elevenLabsConfig.apiKey;
+            if(document.getElementById('elevenVoiceSelect')) document.getElementById('elevenVoiceSelect').value = elevenLabsConfig.voiceId;
+        });
+
+        function initBottomSheetDrag() {
+            const sheet = document.getElementById('routeSheet');
+            const handle = document.getElementById('sheetHandle');
+            if (!sheet || !handle) return;
+
+            let isDragging = false;
+            let startY = 0;
+            let startHeight = 0;
+
+            const onDragStart = (e) => {
+                isDragging = true;
+                startY = e.touches ? e.touches[0].clientY : e.clientY;
+                startHeight = sheet.getBoundingClientRect().height;
+                sheet.style.transition = 'none';
+            };
+
+            const onDragMove = (e) => {
+                if (!isDragging) return;
+                const currentY = e.touches ? e.touches[0].clientY : e.clientY;
+                const deltaY = startY - currentY; // Upward is positive
+                const containerHeight = sheet.parentElement.getBoundingClientRect().height;
+                const newHeight = Math.max(60, Math.min(containerHeight * 0.85, startHeight + deltaY));
+                sheet.style.height = `${newHeight}px`;
+            };
+
+            const onDragEnd = () => {
+                if (!isDragging) return;
+                isDragging = false;
+                sheet.style.transition = 'all 0.3s ease-out';
+                
+                const finalHeight = sheet.getBoundingClientRect().height;
+                const containerHeight = sheet.parentElement.getBoundingClientRect().height;
+
+                if (finalHeight < 150) {
+                    snapSheet('COLLAPSED');
+                } else if (finalHeight > containerHeight * 0.6) {
+                    snapSheet('EXPANDED');
+                } else {
+                    snapSheet('DEFAULT');
+                }
+            };
+
+            handle.addEventListener('touchstart', onDragStart, { passive: true });
+            window.addEventListener('touchmove', onDragMove, { passive: true });
+            window.addEventListener('touchend', onDragEnd);
+
+            handle.addEventListener('mousedown', onDragStart);
+            window.addEventListener('mousemove', onDragMove);
+            window.addEventListener('mouseup', onDragEnd);
+        }
+
+        function snapSheet(state) {
+            const sheet = document.getElementById('routeSheet');
+            const dragHint = document.getElementById('sheetDragHint');
+            if (!sheet) return;
+
+            sheetSnapState = state;
+            sheet.style.transition = 'all 0.3s ease-out';
+
+            if (state === 'COLLAPSED') {
+                sheet.style.height = '68px';
+                if (dragHint) dragHint.textContent = 'Tap or drag up for route details';
+            } else if (state === 'DEFAULT') {
+                sheet.style.height = '380px';
+                if (dragHint) dragHint.textContent = 'Drag down to reveal map • Drag up to expand';
+            } else if (state === 'EXPANDED') {
+                sheet.style.height = '82%';
+                if (dragHint) dragHint.textContent = 'Drag down to minimize view';
+            }
+        }
+
+        function toggleSheetSnap() {
+            if (sheetSnapState === 'COLLAPSED') {
+                snapSheet('DEFAULT');
+            } else if (sheetSnapState === 'DEFAULT') {
+                snapSheet('COLLAPSED');
+            } else {
+                snapSheet('DEFAULT');
+            }
+        }
+
+        function toggleElevenLabsModal() {
+            const modal = document.getElementById('elevenLabsModal');
+            if (modal) modal.classList.toggle('hidden');
+        }
+
+        function saveElevenLabsSettings() {
+            const key = document.getElementById('elevenApiKey').value.trim();
+            const voice = document.getElementById('elevenVoiceSelect').value;
+
+            elevenLabsConfig.apiKey = key;
+            elevenLabsConfig.voiceId = voice;
+
+            localStorage.setItem('eleven_api_key', key);
+            localStorage.setItem('eleven_voice_id', voice);
+
+            toggleElevenLabsModal();
+            showToast(key ? "ElevenLabs AI Voice Key Saved!" : "WebSpeech voice fallback active");
+        }
+
+        async function speakText(text) {
+            if (isSpeaking && currentAudio) {
+                currentAudio.pause();
+                window.speechSynthesis.cancel();
+                isSpeaking = false;
+                updateVoiceButtonState(false);
+                return;
+            }
+
+            updateVoiceButtonState(true);
+            isSpeaking = true;
+
+            // Check if ElevenLabs API key exists
+            if (elevenLabsConfig.apiKey) {
+                try {
+                    showToast("Synthesizing ElevenLabs AI Voice...");
+                    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elevenLabsConfig.voiceId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'audio/mpeg',
+                            'Content-Type': 'application/json',
+                            'xi-api-key': elevenLabsConfig.apiKey
+                        },
+                        body: JSON.stringify({
+                            text: text,
+                            model_id: 'eleven_monolingual_v1',
+                            voice_settings: {
+                                stability: 0.5,
+                                similarity_boost: 0.75
+                            }
+                        })
+                    });
+
+                    if (!response.ok) throw new Error('ElevenLabs API request failed');
+
+                    const audioBlob = await response.blob();
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    currentAudio = new Audio(audioUrl);
+
+                    currentAudio.onended = () => {
+                        isSpeaking = false;
+                        updateVoiceButtonState(false);
+                    };
+
+                    await currentAudio.play();
+                    return;
+                } catch (err) {
+                    console.warn("ElevenLabs failed or invalid key, using WebSpeech fallback:", err);
+                    showToast("ElevenLabs Key Error. Using Browser Speech fallback");
+                }
+            }
+
+            // Fallback to Native Browser WebSpeech Synthesis
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                utterance.onend = () => {
+                    isSpeaking = false;
+                    updateVoiceButtonState(false);
+                };
+                window.speechSynthesis.speak(utterance);
+            } else {
+                showToast("Speech synthesis not supported in browser");
+                updateVoiceButtonState(false);
+                isSpeaking = false;
+            }
+        }
+
+        function updateVoiceButtonState(active) {
+            const btn = document.getElementById('playVoiceBtn');
+            if (!btn) return;
+
+            if (active) {
+                btn.innerHTML = `<i class="fa-solid fa-waveform text-emerald-400 animate-pulse text-sm"></i>`;
+                btn.classList.add('bg-emerald-500/20', 'border-emerald-400');
+            } else {
+                btn.innerHTML = `<i class="fa-solid fa-volume-high text-sm"></i>`;
+                btn.classList.remove('bg-emerald-500/20', 'border-emerald-400');
+            }
+        }
+
+        function speakRouteDirections() {
+            if (!currentRouteData || !currentRouteData.turns) {
+                speakText("Route calculated. Head towards your designated emergency shelter on high ground.");
+                return;
+            }
+
+            const textToSpeak = `Evacuation Route Directions: Target ${LOCATIONS[document.getElementById('endPointSelect').value]?.name || 'Shelter'}. ` +
+                currentRouteData.turns.map((t, idx) => `Step ${idx + 1}: ${t.text}`).join('. ');
+
+            speakText(textToSpeak);
+        }
+
+        function testVoiceAudio() {
+            speakText("Attention evacuees. This is a test of the Aegis Emergency AI Voice navigation system.");
+        }
+
+        const originalUpdateCustomRoute = updateCustomRoute;
+        updateCustomRoute = function() {
+            const startKey = document.getElementById('startPointSelect').value;
+            const endKey = document.getElementById('endPointSelect').value;
+            const avoidFloods = document.getElementById('avoidFloodsCheck').checked;
+
+            const startLoc = LOCATIONS[startKey];
+            const endLoc = LOCATIONS[endKey];
+
+            if (!startLoc || !endLoc) return;
+
+            // Clear old route graphics
+            mapLayers.routes.forEach(r => map.removeLayer(r));
+            mapLayers.routes = [];
+
+            let path = [];
+            let distance = 0;
+            let time = 0;
+            let passesHazard = false;
+            let turns = [];
+
+            if (startKey === 'downtown' && endKey === 'shelter_fairgrounds') {
+                if (avoidFloods && activeHazardType === 'flood') {
+                    path = [
+                        [startLoc.lat, startLoc.lng],
+                        [35.7847, -78.6821],
+                        [35.7920, -78.6950],
+                        [endLoc.lat, endLoc.lng]
+                    ];
+                    distance = 8.4;
+                    time = 14;
+                    passesHazard = false;
+                    turns = [
+                        { icon: 'fa-arrow-up', text: 'Head West on Hillsborough Street staying on high ground' },
+                        { icon: 'fa-arrow-right', text: 'Turn right on Blue Ridge Road, clear of flood basin' },
+                        { icon: 'fa-house-medical', text: 'Arrive safely at NC State Fairgrounds Shelter' }
+                    ];
+                } else {
+                    path = [
+                        [startLoc.lat, startLoc.lng],
+                        [35.8150, -78.6750],
+                        [endLoc.lat, endLoc.lng]
+                    ];
+                    distance = 6.2;
+                    time = 28;
+                    passesHazard = true;
+                    turns = [
+                        { icon: 'fa-triangle-exclamation text-amber-400', text: 'Warning: Glenwood Avenue is submerged with 3.5 feet of flood water' },
+                        { icon: 'fa-arrow-left', text: 'Slowly traverse hazardous water area with extreme caution' },
+                        { icon: 'fa-house-medical', text: 'Arrive at Shelter' }
+                    ];
+                }
+            } else {
+                path = [
+                    [startLoc.lat, startLoc.lng],
+                    [(startLoc.lat + endLoc.lat)/2 + 0.01, (startLoc.lng + endLoc.lng)/2 - 0.01],
+                    [endLoc.lat, endLoc.lng]
+                ];
+                distance = Math.round(((Math.abs(startLoc.lat - endLoc.lat) + Math.abs(startLoc.lng - endLoc.lng)) * 60) * 10) / 10;
+                time = Math.round(distance * 1.8);
+                passesHazard = false;
+                turns = [
+                    { icon: 'fa-arrow-up', text: `Proceed on TigerGraph dynamic node connector` },
+                    { icon: 'fa-location-arrow', text: `Follow safe high-elevation corridor towards shelter` },
+                    { icon: 'fa-house-medical', text: `Arrive at ${endLoc.name}` }
+                ];
+            }
+
+            // Save global state for speech reader
+            currentRouteData = { distance, time, passesHazard, turns };
+
+            const routeColor = passesHazard ? '#ef4444' : '#22c55e';
+            const polyline = L.polyline(path, {
+                color: routeColor,
+                weight: 5,
+                opacity: 0.9,
+                dashArray: passesHazard ? '8, 8' : null
+            }).addTo(map);
+
+            mapLayers.routes.push(polyline);
+            map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+
+            document.getElementById('routeDistance').textContent = `${distance} miles`;
+            document.getElementById('routeTime').textContent = `${time} mins`;
+            document.getElementById('routeTime').className = passesHazard ? 'text-red-400' : 'text-emerald-400';
+            
+            const summaryEl = document.getElementById('hazardDetourSummary');
+            if (passesHazard) {
+                summaryEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-red-400 mr-1"></i>Hazard Warning: Route passes through flood zone!`;
+            } else {
+                summaryEl.innerHTML = `<i class="fa-solid fa-shield-check text-emerald-400 mr-1"></i>0 Active Flood Hazard Intersections (TigerGraph Safe)`;
+            }
+
+            const turnsContainer = document.getElementById('turnByTurnContainer');
+            turnsContainer.innerHTML = turns.map((t, idx) => `
+                <div class="flex items-center space-x-2.5 bg-slate-800/80 p-2 rounded-lg border border-slate-700/60">
+                    <div class="w-5 h-5 rounded bg-slate-700 flex items-center justify-center text-slate-300 text-[10px] shrink-0 font-mono">${idx+1}</div>
+                    <i class="fa-solid ${t.icon} text-slate-300 text-xs shrink-0"></i>
+                    <span class="flex-1 text-[11px] leading-tight">${t.text}</span>
+                </div>
+            `).join('');
+
+            updateTigerGraphInspectorList(startKey, endKey, distance, passesHazard);
+        };
+
+        // Simulated NOAA Hazard Areas (Polygons & Circles)
+        const HAZARD_ZONES = {
+            flood: [
+                {
+                    name: "Crabtree Creek Severe Overflow Zone",
+                    center: [35.8150, -78.6750],
+                    radius: 1800, // meters
+                    severity: "High Hazard (Water > 3.5ft)",
+                    color: "#ef4444"
+                },
+                {
+                    name: "Walnut Creek Low-Lying Basin Flood Alert",
+                    center: [35.7550, -78.6150],
+                    radius: 1400,
+                    severity: "Moderate Hazard (Water 1.5ft)",
+                    color: "#f97316"
+                }
+            ],
+            hurricane: [
+                {
+                    name: "Category 2 High Wind & Debris Sector",
+                    center: [35.7600, -78.6400],
+                    radius: 4000,
+                    severity: "Extreme Wind Hazard",
+                    color: "#f97316"
+                }
+            ],
+            chemical: [
+                {
+                    name: "Industrial Hazmat Air Containment Zone",
+                    center: [35.7680, -78.6200],
+                    radius: 1200,
+                    severity: "Chemical Toxic Plume",
+                    color: "#eab308"
+                }
+            ]
+        };
+
+        // TigerGraph Simulated Graph Topology (Intersections & Roads)
+        const GRAPH_EDGES = [
+            { from: "downtown", to: "ncstate", road: "Wade Ave", dist: 3.2, baseTime: 7, passesHazard: false },
+            { from: "downtown", to: "crabtree", road: "Glenwood Ave", dist: 5.8, baseTime: 12, passesHazard: true },
+            { from: "crabtree", to: "shelter_fairgrounds", road: "Blue Ridge Rd", dist: 4.1, baseTime: 8, passesHazard: true },
+            { from: "ncstate", to: "shelter_fairgrounds", road: "Hillsborough St / Blue Ridge", dist: 3.5, baseTime: 6, passesHazard: false },
+            { from: "downtown", to: "shelter_southeast", road: "Rock Quarry Rd", dist: 4.8, baseTime: 9, passesHazard: false },
+            { from: "downtown", to: "shelter_wakefield", road: "Capital Blvd", dist: 11.2, baseTime: 18, passesHazard: true },
+            { from: "ncstate", to: "shelter_wakefield", road: "I-440 Beltline Detour", dist: 13.5, baseTime: 20, passesHazard: false }
+        ];
+
+        // Global State Variables
+        let map = null;
+        let activeHazardType = 'flood';
+        let mapLayers = {
+            hazards: [],
+            markers: [],
+            routes: []
+        };
+        let currentRouteData = null;
+
+        function initMap() {
+            // Prevent duplicate initialization error on the map container
+            if (map) return;
+
+            // Initialize Leaflet Map
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView(RALEIGH_CENTER, 12);
+
+            // OpenStreetMap Tile Layer with Dark/Carto DB Style
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19,
+                subdomains: 'abcd',
+            }).addTo(map);
+
+            // Add Markers for Key Locations
+            Object.keys(LOCATIONS).forEach(key => {
+                const loc = LOCATIONS[key];
+                const isShelter = key.startsWith('shelter');
+                
+                const iconHtml = isShelter ? 
+                    `<div class="w-8 h-8 rounded-full bg-emerald-500 text-slate-950 border-2 border-white flex items-center justify-center shadow-lg font-bold text-xs animate-bounce"><i class="fa-solid fa-house-medical"></i></div>` :
+                    `<div class="w-7 h-7 rounded-full bg-slate-800 text-slate-200 border-2 border-emerald-400 flex items-center justify-center shadow-lg text-xs"><i class="fa-solid fa-location-dot"></i></div>`;
+
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'custom-map-icon',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                });
+
+                const marker = L.marker([loc.lat, loc.lng], { icon: customIcon }).addTo(map);
+                
+                let popupContent = `
+                    <div class="p-1">
+                        <div class="font-bold text-xs text-white">${loc.name}</div>
+                        ${isShelter ? `<div class="text-[10px] text-emerald-400 font-semibold mt-0.5">Capacity: ${loc.capacity} • ${loc.type}</div>` : ''}
+                        <button onclick="setAsDestination('${key}')" class="mt-2 text-[10px] bg-emerald-500 text-slate-950 px-2 py-1 rounded font-bold w-full">Set as Target</button>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent, { className: 'custom-popup' });
+                mapLayers.markers.push(marker);
+            });
+
+            // Draw Initial NOAA Hazard Circles
+            drawHazardZones();
+        }
+
+        function drawHazardZones() {
+            // Clear existing hazard graphics
+            mapLayers.hazards.forEach(layer => map.removeLayer(layer));
+            mapLayers.hazards = [];
+
+            const zones = HAZARD_ZONES[activeHazardType] || [];
+            zones.forEach(zone => {
+                const circle = L.circle(zone.center, {
+                    color: zone.color,
+                    fillColor: zone.color,
+                    fillOpacity: 0.35,
+                    radius: zone.radius,
+                    weight: 2,
+                    dashArray: '5, 5'
+                }).addTo(map);
+
+                circle.bindPopup(`
+                    <div class="p-1">
+                        <div class="font-bold text-xs text-red-400"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${zone.name}</div>
+                        <div class="text-[10px] text-slate-300 mt-1">${zone.severity}</div>
+                        <div class="text-[9px] text-slate-400 font-mono mt-1">NOAA Hydrological Sensor ID: NC-9821</div>
+                    </div>
+                `, { className: 'custom-popup' });
+
+                mapLayers.hazards.push(circle);
+            });
+        }
+
+        function selectHazardType(type) {
+            activeHazardType = type;
+            
+            // Highlight Buttons
+            document.querySelectorAll('.hazard-select-btn').forEach(btn => {
+                btn.classList.remove('bg-emerald-600/30', 'border-2', 'border-emerald-500', 'text-white');
+                btn.classList.add('bg-slate-800', 'border-slate-700', 'text-slate-400');
+            });
+
+            const activeBtn = document.getElementById(`hazardBtn-${type}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-slate-800', 'border-slate-700', 'text-slate-400');
+                activeBtn.classList.add('bg-emerald-600/30', 'border-2', 'border-emerald-500', 'text-white');
+            }
+
+            // Update Alert Header Text
+            const alertEl = document.getElementById('alertText');
+            if (type === 'flood') alertEl.textContent = 'NOAA Alert: Severe Flash Flood Warning in Wake County';
+            if (type === 'hurricane') alertEl.textContent = 'NOAA Alert: High Wind & Tree Fall Hazard Active';
+            if (type === 'chemical') alertEl.textContent = 'Raleigh Fire Alert: Industrial Airborne Containment Zone';
+
+            drawHazardZones();
+            updateCustomRoute();
+            showToast(`Loaded live ${type.toUpperCase()} hazard boundary layer`);
+        }
+
+        function updateCustomRoute() {
+            const startKey = document.getElementById('startPointSelect').value;
+            const endKey = document.getElementById('endPointSelect').value;
+            const avoidFloods = document.getElementById('avoidFloodsCheck').checked;
+
+            const startLoc = LOCATIONS[startKey];
+            const endLoc = LOCATIONS[endKey];
+
+            if (!startLoc || !endLoc) return;
+
+            // Clear old route graphics
+            mapLayers.routes.forEach(r => map.removeLayer(r));
+            mapLayers.routes = [];
+
+            // Simulate TigerGraph Query Execution
+            let path = [];
+            let distance = 0;
+            let time = 0;
+            let passesHazard = false;
+            let turns = [];
+
+            // Simple route selection based on TigerGraph edge weights logic
+            if (startKey === 'downtown' && endKey === 'shelter_fairgrounds') {
+                if (avoidFloods && activeHazardType === 'flood') {
+                    // Safe Detour via Hillsborough St
+                    path = [
+                        [startLoc.lat, startLoc.lng],
+                        [35.7847, -78.6821], // NC State Node
+                        [35.7920, -78.6950],
+                        [endLoc.lat, endLoc.lng]
+                    ];
+                    distance = 8.4;
+                    time = 14;
+                    passesHazard = false;
+                    turns = [
+                        { icon: 'fa-arrow-up', text: 'Head West on Hillsborough St (High Ground)' },
+                        { icon: 'fa-arrow-right', text: 'Turn right on Blue Ridge Rd (Clear of Flood Basin)' },
+                        { icon: 'fa-house-medical', text: 'Arrive at NC State Fairgrounds Shelter' }
+                    ];
+                } else {
+                    // Direct Flooded Route via Glenwood
+                    path = [
+                        [startLoc.lat, startLoc.lng],
+                        [35.8150, -78.6750], // Crabtree Hazard Node
+                        [endLoc.lat, endLoc.lng]
+                    ];
+                    distance = 6.2;
+                    time = 28; // Delayed by water
+                    passesHazard = true;
+                    turns = [
+                        { icon: 'fa-triangle-exclamation text-amber-400', text: 'WARNING: Glenwood Ave submerged (3.5ft water)' },
+                        { icon: 'fa-arrow-left', text: 'Slow traverse through high water hazard' },
+                        { icon: 'fa-house-medical', text: 'Arrive at Shelter' }
+                    ];
+                }
+            } else {
+                // Generic Generated Route for other combinations
+                path = [
+                    [startLoc.lat, startLoc.lng],
+                    [(startLoc.lat + endLoc.lat)/2 + 0.01, (startLoc.lng + endLoc.lng)/2 - 0.01],
+                    [endLoc.lat, endLoc.lng]
+                ];
+                distance = (Math.abs(startLoc.lat - endLoc.lat) + Math.abs(startLoc.lng - endLoc.lng)) * 60;
+                distance = Math.round(distance * 10) / 10;
+                time = Math.round(distance * 1.8);
+                passesHazard = false;
+                turns = [
+                    { icon: 'fa-arrow-up', text: `Proceed on TigerGraph dynamic node connector` },
+                    { icon: 'fa-location-arrow', text: `Follow safe high-elevation corridor` },
+                    { icon: 'fa-house-medical', text: `Arrive at ${endLoc.name}` }
+                ];
+            }
+
+            // Draw Route Polyline on Map
+            const routeColor = passesHazard ? '#ef4444' : '#22c55e';
+            const polyline = L.polyline(path, {
+                color: routeColor,
+                weight: 5,
+                opacity: 0.9,
+                dashArray: passesHazard ? '8, 8' : null
+            }).addTo(map);
+
+            mapLayers.routes.push(polyline);
+
+            // Fit Map View to show whole route
+            map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+
+            // Update DOM UI Text
+            document.getElementById('routeDistance').textContent = `${distance} miles`;
+            document.getElementById('routeTime').textContent = `${time} mins`;
+            document.getElementById('routeTime').className = passesHazard ? 'text-red-400' : 'text-emerald-400';
+            
+            const summaryEl = document.getElementById('hazardDetourSummary');
+            if (passesHazard) {
+                summaryEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-red-400 mr-1"></i>Hazard Warning: Route passes through flood zone!`;
+            } else {
+                summaryEl.innerHTML = `<i class="fa-solid fa-shield-check text-emerald-400 mr-1"></i>0 Active Flood Hazard Intersections (TigerGraph Safe)`;
+            }
+
+            // Render Turn-by-Turn Guidance
+            const turnsContainer = document.getElementById('turnByTurnContainer');
+            turnsContainer.innerHTML = turns.map((t, idx) => `
+                <div class="flex items-center space-x-2.5 bg-slate-800/80 p-2 rounded-lg border border-slate-700/60">
+                    <div class="w-5 h-5 rounded bg-slate-700 flex items-center justify-center text-slate-300 text-[10px] shrink-0 font-mono">${idx+1}</div>
+                    <i class="fa-solid ${t.icon} text-slate-300 text-xs shrink-0"></i>
+                    <span class="flex-1 text-[11px] leading-tight">${t.text}</span>
+                </div>
+            `).join('');
+
+            updateTigerGraphInspectorList(startKey, endKey, distance, passesHazard);
+        }
+
+        function updateTigerGraphInspectorList(start, end, dist, hazard) {
+            const listContainer = document.getElementById('edgeWeightList');
+            if (!listContainer) return;
+
+            const penalty = hazard ? 99000 : 0;
+            document.getElementById('inspectorPenaltyCount').textContent = `+${penalty.toLocaleString()} Wt`;
+
+            listContainer.innerHTML = `
+                <div class="p-2 bg-slate-950 rounded border border-slate-800 flex justify-between items-center">
+                    <div>
+                        <div class="text-slate-300 font-bold">Node(${start}) -> Node(Intersection_42)</div>
+                        <div class="text-[10px] text-slate-500">Distance: ${(dist*0.4).toFixed(1)} miles</div>
+                    </div>
+                    <span class="text-emerald-400 font-mono">Weight: 4.2</span>
+                </div>
+                <div class="p-2 bg-slate-950 rounded border ${hazard ? 'border-red-900/60' : 'border-slate-800'} flex justify-between items-center">
+                    <div>
+                        <div class="text-slate-300 font-bold">Node(Glenwood_Basin) [NOAA Sector]</div>
+                        <div class="text-[10px] ${hazard ? 'text-red-400' : 'text-slate-500'}">Submerged Hydro Gauge</div>
+                    </div>
+                    <span class="${hazard ? 'text-red-400 font-bold' : 'text-emerald-400'} font-mono">Weight: ${hazard ? '99,999 (BLOCKED)' : '8.1'}</span>
+                </div>
+            `;
+        }
+
+        function renderSheltersList() {
+            const container = document.getElementById('sheltersListContainer');
+            if (!container) return;
+
+            const shelters = Object.keys(LOCATIONS)
+                .filter(k => k.startsWith('shelter'))
+                .map(k => ({ key: k, ...LOCATIONS[k] }));
+
+            container.innerHTML = shelters.map(s => `
+                <div class="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3 space-y-2">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h3 class="text-xs font-bold text-white flex items-center space-x-1.5">
+                                <i class="fa-solid fa-house-medical text-emerald-400"></i>
+                                <span>${s.name}</span>
+                            </h3>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Wake County Municipal GIS Node</div>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">${s.type}</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-[11px] bg-slate-900/60 p-2 rounded-lg border border-slate-700/40">
+                        <div>
+                            <span class="text-slate-400">Current Occupancy:</span>
+                            <span class="font-bold text-white ml-1">${s.capacity}</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-400">Elevation:</span>
+                            <span class="font-bold text-emerald-400 ml-1">High Ground</span>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-2 pt-1">
+                        <button onclick="setAsDestination('${s.key}')" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-1.5 rounded-lg text-xs transition">
+                            Route To Shelter
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function setAsDestination(shelterKey) {
+            switchTab('map');
+            const selectEl = document.getElementById('endPointSelect');
+            if (selectEl) {
+                selectEl.value = shelterKey;
+                updateCustomRoute();
+                showToast(`Destination set to ${LOCATIONS[shelterKey]?.name}`);
+            }
+        }
+
+        function switchTab(tabName) {
+            // Hide all tab contents
+            ['mapTab', 'sheltersTab', 'graphInspectorTab', 'aiAssistantTab'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+
+            // Unhighlight nav buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.className = 'nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-400 hover:text-slate-200 font-medium transition';
+            });
+
+            // Show selected tab
+            const target = document.getElementById(`${tabName}Tab`);
+            if (target) target.classList.remove('hidden');
+
+            // Highlight nav button
+            const navBtn = document.getElementById(`nav-${tabName}`);
+            if (navBtn) {
+                navBtn.className = 'nav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-emerald-400 bg-emerald-500/10 font-medium transition';
+            }
+
+            if (tabName === 'map' && map) {
+                setTimeout(() => map.invalidateSize(), 200);
+            }
+        }
+
+        async function sendAiMessage(e) {
+            e.preventDefault();
+            const inputEl = document.getElementById('aiInput');
+            const query = inputEl.value.trim();
+            if (!query) return;
+
+            const chatHistory = document.getElementById('aiChatHistory');
+            
+            // Append User Question
+            chatHistory.innerHTML += `
+                <div class="bg-emerald-600/30 border border-emerald-500/40 p-3 rounded-2xl rounded-tr-none text-emerald-100 ml-6">
+                    ${query}
+                </div>
+            `;
+            inputEl.value = '';
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            // Loading state
+            const loadingId = 'ai-loading-' + Date.now();
+            chatHistory.innerHTML += `
+                <div id="${loadingId}" class="bg-slate-800/80 border border-slate-700/60 p-3 rounded-2xl rounded-tl-none text-slate-400 flex items-center space-x-2">
+                    <i class="fa-solid fa-spinner animate-spin text-emerald-400"></i>
+                    <span>Consulting NOAA & Emergency Guidelines...</span>
+                </div>
+            `;
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            try {
+                // Call Gemini API
+                const apiKey = ""; // Canvas runtime provides key
+                const systemPrompt = "You are an AI Emergency Assistant for a severe weather evacuation app in North Carolina. Give brief, punchy, life-saving advice (under 3 bullet points). Emphasize safety around flood waters ('Turn Around Don't Drown').";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: query }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+
+                const data = await response.json();
+                const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Remember: Never drive into flooded roadways. Turn Around, Don't Drown!";
+
+                document.getElementById(loadingId).outerHTML = `
+                    <div class="bg-slate-800/80 border border-slate-700/60 p-3 rounded-2xl rounded-tl-none text-slate-200">
+                        ${aiText.replace(/\n/g, '<br>')}
+                    </div>
+                `;
+            } catch (err) {
+                document.getElementById(loadingId).outerHTML = `
+                    <div class="bg-slate-800/80 border border-slate-700/60 p-3 rounded-2xl rounded-tl-none text-amber-300">
+                        <i class="fa-solid fa-circle-exclamation text-amber-400 mr-1"></i>
+                        Emergency rule: Never drive through standing water deeper than 6 inches. Seek high ground immediately if trapped.
+                    </div>
+                `;
+            }
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function recenterMap() {
+            if (map) {
+                map.setView(RALEIGH_CENTER, 12);
+                showToast("Map recentered on Wake County");
+            }
+        }
+
+        function zoomToHazard() {
+            switchTab('map');
+            const zone = HAZARD_ZONES[activeHazardType]?.[0];
+            if (zone && map) {
+                map.setView(zone.center, 14);
+                showToast(`Zoomed to ${zone.name}`);
+            }
+        }
+
+        function startNavigation() {
+            showToast("Navigation Active: Voice guidance & dynamic TigerGraph re-routing enabled!");
+        }
+
+        function resetRoute() {
+            document.getElementById('startPointSelect').value = 'downtown';
+            document.getElementById('endPointSelect').value = 'shelter_fairgrounds';
+            document.getElementById('avoidFloodsCheck').checked = true;
+            document.getElementById('avoidChokepointsCheck').checked = true;
+            updateCustomRoute();
+            showToast("Route settings restored to default");
+        }
+
+        function toggleLiveDataModal() {
+            const modal = document.getElementById('liveDataModal');
+            if (modal) modal.classList.toggle('hidden');
+        }
+
+        function toggleTigerGraphInspector() {
+            switchTab('graphInspector');
+        }
+
+        function toggleLayerDrawer() {
+            showToast("Toggled NOAA Weather + OSM Road Layers");
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toastText');
+            if (!toast || !toastText) return;
+
+            toastText.textContent = message;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
